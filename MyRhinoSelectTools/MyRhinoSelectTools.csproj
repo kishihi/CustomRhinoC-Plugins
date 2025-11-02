@@ -1,0 +1,69 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<!-- Select the framework(s) you wish to target.
+        Rhino 6: net45
+        Rhino 7: net48
+        Rhino 8 Windows: net48, net7.0, net7.0-windows, net7.0-windows10.0.22000.0, etc
+        Rhino 8 Mac: net7.0, net7.0-macos, net7.0-macos12.0, etc
+    -->
+		<TargetFrameworks>net7.0;net48</TargetFrameworks>
+		<EnableDynamicLoading>true</EnableDynamicLoading>
+		<TargetExt>.rhp</TargetExt>
+		<NoWarn>NU1701</NoWarn>
+		<LangVersion>7.0</LangVersion>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<!-- Specifies information for Assembly and Yak -->
+		<Version>1.0</Version>
+		<Title>MyRhinoSelectTools</Title>
+		<Company>MyRhinoSelectTools Authors</Company>
+		<Description>Description of MyRhinoSelectTools</Description>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="RhinoCommon" Version="7.0.20314.3001" Condition="$(TargetFramework) == 'net48'" ExcludeAssets="runtime" />
+		<PackageReference Include="RhinoCommon" Version="8.0.23304.9001" Condition="!$(TargetFramework.StartsWith('net4'))" ExcludeAssets="runtime" />
+	</ItemGroup>
+
+	<Target Name="CopyPdbForMonoDebugging" AfterTargets="AfterBuild">
+		<!-- Enable debugging in Rhino 6/7 on Mac -->
+		<Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFiles="$(TargetDir)$(TargetName).rhp.pdb" Condition="$([MSBuild]::IsOSPlatform(OSX)) and $(TargetFramework.StartsWith('net4')) and Exists('$(TargetDir)$(TargetName).pdb')" />
+	</Target>
+
+	<Target Name="BuildYakPackage" AfterTargets="DispatchToInnerBuilds">
+		<PropertyGroup>
+			<YakExecutable Condition="$(YakExecutable) == '' and $([MSBuild]::IsOSPlatform(windows)) and Exists('C:\Program Files\Rhino 8\System\Yak.exe')">C:\Program Files\Rhino 8\System\Yak.exe</YakExecutable>
+			<YakExecutable Condition="$(YakExecutable) == '' and $([MSBuild]::IsOSPlatform(macos)) and Exists('/Applications/Rhino 8.app/Contents/Resources/bin/yak')">/Applications/Rhino 8.app/Contents/Resources/bin/yak</YakExecutable>
+
+			<BuildYakPackage Condition="$(BuildYakPackage) == '' and $(YakExecutable) != '' and Exists($(YakExecutable))">True</BuildYakPackage>
+		</PropertyGroup>
+
+		<Warning Text="Could not find Yak executable" Condition="$(YakExecutable) == ''" />
+
+		<ItemGroup>
+			<YakPackagesToDelete Include="$(OutputPath)\*.yak;$(OutputPath)\**\manifest.yml" />
+		</ItemGroup>
+
+		<Delete Files="@(YakPackagesToDelete)" />
+
+		<Exec Command="&quot;$(YakExecutable)&quot; spec" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+		<Exec Command="&quot;$(YakExecutable)&quot; build" WorkingDirectory="$(OutputPath)" Condition="$(BuildYakPackage) == 'True'" />
+
+		<!-- Rhino 7 -->
+		<Exec Command="&quot;$(YakExecutable)&quot; spec" WorkingDirectory="$(OutputPath)net48\" Condition="$(BuildYakPackage) == 'True'" />
+		<Exec Command="&quot;$(YakExecutable)&quot; build" WorkingDirectory="$(OutputPath)net48\" Condition="$(BuildYakPackage) == 'True'" />
+
+		<ItemGroup>
+			<YakPackageToMove Include="$(BaseOutputPath)$(Configuration)\net48\*.yak" />
+		</ItemGroup>
+		<Move SourceFiles="@(YakPackageToMove)" DestinationFolder="$(BaseOutputPath)$(Configuration)\" Condition="$(BuildYakPackage) == 'True'" />
+	</Target>
+
+
+	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
+		<Exec Command="&#xD;&#xA;    @echo off&#xD;&#xA;    setlocal ENABLEDELAYEDEXPANSION&#xD;&#xA;&#xD;&#xA;    REM === 获取插件文件名 ===&#xD;&#xA;    for %%f in (&quot;$(TargetPath)&quot;) do set PLUGINNAME=%%~nf&#xD;&#xA;&#xD;&#xA;    REM === 使用 PowerShell 获取当前日期时间 (yyMMdd.HHmm) ===&#xD;&#xA;    for /f %%a in ('powershell -NoProfile -Command &quot;Get-Date -Format yyMMdd.HHmm&quot;') do set DATETIME=%%a&#xD;&#xA;&#xD;&#xA;    REM === 获取版本号（优先 AssemblyInfo.cs，否则用 Version 属性） ===&#xD;&#xA;    set VERSION=$(Version)&#xD;&#xA;    if exist &quot;$(ProjectDir)Properties\AssemblyInfo.cs&quot; (&#xD;&#xA;      for /f &quot;tokens=2 delims==&quot; %%b in ('findstr AssemblyVersion &quot;$(ProjectDir)Properties\AssemblyInfo.cs&quot;') do set VERSION=%%b&#xD;&#xA;      set VERSION=!VERSION:&quot;=!&#xD;&#xA;    )&#xD;&#xA;&#xD;&#xA;    REM === 拼接完整版本号字符串 ===&#xD;&#xA;    set FULLVER=v!VERSION!.!DATETIME!&#xD;&#xA;&#xD;&#xA;    REM === 定义本地输出目录，区分框架 ===&#xD;&#xA;    set TARGET=$(ProjectDir)bin\Release\!FULLVER!\$(TargetFramework)&#xD;&#xA;&#xD;&#xA;    REM === 创建输出目录 ===&#xD;&#xA;    if not exist &quot;!TARGET!&quot; mkdir &quot;!TARGET!&quot;&#xD;&#xA;&#xD;&#xA;    REM === 复制 rhp 到本地版本输出目录 ===&#xD;&#xA;    xcopy &quot;$(TargetPath)&quot; &quot;!TARGET!\&quot; /Y &gt;nul&#xD;&#xA;	&#xD;&#xA;	@echo copyed !TARGET!&#xD;&#xA;	&#xD;&#xA;    set USB_TARGET=E:\RhinoLearn\Csharp\!PLUGINNAME!\!FULLVER!\$(TargetFramework)&#xD;&#xA;&#xD;&#xA;    REM === 如果U盘存在则复制一份到U盘，保持版本号+框架目录 ===&#xD;&#xA;    if exist &quot;E:\RhinoLearn\Csharp&quot; (&#xD;&#xA;      if not exist &quot;!USB_TARGET!&quot; mkdir &quot;!USB_TARGET!&quot;&#xD;&#xA;      xcopy &quot;$(TargetPath)&quot; &quot;!USB_TARGET!\&quot; /Y &gt;nul&#xD;&#xA;    )&#xD;&#xA;	@echo copyed !USB_TARGET!&#xD;&#xA;&#xD;&#xA;    @echo ✅ 已生成版本: !FULLVER! (框架: $(TargetFramework))&#xD;&#xA;    endlocal&#xD;&#xA;  " />
+	</Target>
+
+</Project>
