@@ -1,5 +1,9 @@
 ## Some Custom Rhino C# Plugins for Rhino 7+
 
+编译后的rhp位于 xx\bin\Release\netxx\ 
+
+直接拖入Rhino使用
+
 ### MyRhinoSelecTools 
 
 准备对rhino的选择工具做点拓展
