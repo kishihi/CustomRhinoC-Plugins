@@ -13,6 +13,7 @@ namespace MyChangeTools.ProjectFlowEx2
         public bool IsNormalvectorAsProjectVector { get; set; } = false;
         public bool IsFlowOnTargetBaseNormalVector { get; set; } = true;
         public int ControlPointMagnification { get; set; } = 1;
+        public bool PreserveStructure { get; set; } = false;
 
     }
 
@@ -94,73 +95,91 @@ namespace MyChangeTools.ProjectFlowEx2
             int optFlowOnNormal = go.AddOptionToggle("在目标曲面法向方向排列", ref toggleIsFlowOnTargetBaseNormalVector);
 
             var opIntCp = new OptionInteger(ProcessOption.ControlPointMagnification);
-
             int opControlPointMagnification = go.AddOptionInteger("控制点放大倍数", ref opIntCp);
 
 
-            while (true)
+            var togglePreserveStructure = new OptionToggle(ProcessOption.PreserveStructure, "No", "Yes");
+            int optPreserveStructure = go.AddOptionToggle("保持结构", ref togglePreserveStructure);
+
+
+            using (var escHandler = new MyChangeTools.Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
+
             {
-                var res = go.Get();
-                if (res == GetResult.Option)
+                while (true)
                 {
-                    int index = go.OptionIndex();
-                    if (index == optX)
-                        projectVector = Vector3d.XAxis;
-                    else if (index == optFlowOnNormal)
+                    var res = go.Get();
+                    if (res == GetResult.Option)
                     {
+                        int index = go.OptionIndex();
+                        if (index == optX)
+                            projectVector = Vector3d.XAxis;
+                        else if (index == optFlowOnNormal)
+                        {
+                            ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
+                            RhinoApp.WriteLine($"在目标曲面法向方向排列:{ProcessOption.IsFlowOnTargetBaseNormalVector}");
+                            continue;
+                        }
+                        else if (index == optPreserveStructure)
+                        {
+                            ProcessOption.PreserveStructure = togglePreserveStructure.CurrentValue;
+                            RhinoApp.WriteLine($"保持结构:{ProcessOption.PreserveStructure}");
+                            continue;
+                        }
+                        else if (index == opControlPointMagnification)
+                        {
+                            ProcessOption.ControlPointMagnification = opIntCp.CurrentValue;
+                            RhinoApp.WriteLine($"控制点放大倍数:{ProcessOption.ControlPointMagnification}");
+                            continue;
+
+                        }
+
+                        else if (index == optY)
+                            projectVector = Vector3d.YAxis;
+                        else if (index == optZ)
+                            projectVector = Vector3d.ZAxis;
+                        else if (index == optNormal)
+                        {
+                            projectVector = Vector3d.Unset;
+                            ProcessOption.IsNormalvectorAsProjectVector = true;
+                            RhinoApp.WriteLine($"基准面上最近点法向作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            return Result.Success;
+                        }
+                        else if (index == optPick)
+                        {
+                            // 通过两点定义方向
+                            if (RhinoGet.GetPoint("选择第一个点", false, out Point3d p1) != Result.Success)
+                                return Result.Cancel;
+                            if (RhinoGet.GetPoint("选择第二个点", false, out Point3d p2) != Result.Success)
+                                return Result.Cancel;
+
+                            projectVector = p2 - p1;
+                            if (!projectVector.Unitize())
+                            {
+                                RhinoApp.WriteLine("两点重合，方向无效。请重新选择方向。");
+                                continue; // 重新选择
+                            }
+                        }
                         ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                        RhinoApp.WriteLine($"在目标曲面法向方向排列:{ProcessOption.IsFlowOnTargetBaseNormalVector}");
-                        continue;
+                        break;
                     }
-                    else if (index == opControlPointMagnification)
+                    else if (escHandler.EscapeKeyPressed)
                     {
-                        ProcessOption.ControlPointMagnification = opIntCp.CurrentValue;
-                        RhinoApp.WriteLine($"控制点放大倍数:{ProcessOption.ControlPointMagnification}");
-                        continue;
-
+                        RhinoApp.WriteLine("用户按下 ESC，命令已取消。");
+                        return Result.Nothing;
                     }
-
-                    else if (index == optY)
-                        projectVector = Vector3d.YAxis;
-                    else if (index == optZ)
+                    else if (res == GetResult.Cancel)
+                    {
+                        //默认使用 Z 轴方向
                         projectVector = Vector3d.ZAxis;
-                    else if (index == optNormal)
-                    {
-                        projectVector = Vector3d.Unset;
-                        ProcessOption.IsNormalvectorAsProjectVector = true;
-                        RhinoApp.WriteLine($"基准面上最近点法向作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                        ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
                         return Result.Success;
                     }
-                    else if (index == optPick)
+                    else
                     {
-                        // 通过两点定义方向
-                        if (RhinoGet.GetPoint("选择第一个点", false, out Point3d p1) != Result.Success)
-                            return Result.Cancel;
-                        if (RhinoGet.GetPoint("选择第二个点", false, out Point3d p2) != Result.Success)
-                            return Result.Cancel;
-
-                        projectVector = p2 - p1;
-                        if (!projectVector.Unitize())
-                        {
-                            RhinoApp.WriteLine("两点重合，方向无效。请重新选择方向。");
-                            continue; // 重新选择
-                        }
+                        RhinoApp.WriteLine("请通过选项选择方向或使用两点定义。");
                     }
-                    ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                    break;
-                }
-                else if (res == GetResult.Cancel)
-                {
-                    // 用户取消时默认使用 Z 轴方向
-                    projectVector = Vector3d.ZAxis;
-                    ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                    return Result.Success;
-                }
-                else
-                {
-                    RhinoApp.WriteLine("请通过选项选择方向或使用两点定义。");
-                }
 
+                }
             }
 
             projectVector.Unitize();

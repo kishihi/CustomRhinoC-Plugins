@@ -349,19 +349,6 @@ namespace MyChangeTools.ProjectFlowEx2
                 }
             }
 
-            //Line revLine = new Line(fromPt, -dir, 1e6);
-            //Curve revCurve = new LineCurve(revLine);
-            //if (Rhino.Geometry.Intersect.Intersection.CurveBrep(revCurve, brep, tol, out _, out Point3d[] revPoints))
-            //{
-            //    if (revPoints != null && revPoints.Length > 0)
-            //    {
-            //        foreach (var p in revPoints)
-            //        {
-            //            if (p != Point3d.Unset) return p;
-            //        }
-            //    }
-            //}
-
             return Point3d.Unset;
         }
 

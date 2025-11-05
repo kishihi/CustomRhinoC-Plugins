@@ -5,9 +5,10 @@ using Rhino.Geometry;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MyChangeTools.ProjectFlowEx2
 {
@@ -16,10 +17,10 @@ namespace MyChangeTools.ProjectFlowEx2
     {
         private readonly Func<Point3d, (bool ok, Point3d newPt)> _processPointFunc;
 
-        public MyPointFieldMorph(Func<Point3d, (bool ok, Point3d newPt)> processPointFunc, double tolerance)
+        public MyPointFieldMorph(Func<Point3d, (bool ok, Point3d newPt)> processPointFunc, double tolerance,bool preserveStructure)
         {
             _processPointFunc = processPointFunc;
-            PreserveStructure = false; // 一般几何变形要设置 false
+            PreserveStructure = preserveStructure;
             Tolerance = tolerance;
         }
 
@@ -51,11 +52,11 @@ namespace MyChangeTools.ProjectFlowEx2
         private readonly ConcurrentQueue<string> _logMessages = new ConcurrentQueue<string>(); // ✅ 全局日志队列
         private readonly ConcurrentQueue<GeometryBase> _logObjs = new ConcurrentQueue<GeometryBase>(); // ✅ 全局临时对象队列
 
-        //private readonly Mesh[] _baseMeshs;
-        //private readonly Mesh[] _targetMeshs;
-
         // 构建 Morph 对象
         private readonly MyPointFieldMorph _morph;
+        private readonly bool _PreserveStructure;
+
+        private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep baseBrep, Brep targetBrep, Vector3d projectionDirection, SelectionOptions options)
         {
@@ -70,12 +71,6 @@ namespace MyChangeTools.ProjectFlowEx2
 
             _ModelTolerance = _doc?.ModelAbsoluteTolerance ?? RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
 
-            //_baseMeshs = Mesh.CreateFromBrep(_baseBrep, new MeshingParameters(1));
-            //_targetMeshs = Mesh.CreateFromBrep(_targetBrep, new MeshingParameters(1));
-            //var fastParam = MeshingParameters.FastRenderMesh;
-            //_baseMeshs = Mesh.CreateFromBrep(_baseBrep, fastParam);
-            //_targetMeshs = Mesh.CreateFromBrep(_targetBrep, fastParam);
-
 
             _morph = new MyPointFieldMorph(pt =>
             {
@@ -88,13 +83,15 @@ namespace MyChangeTools.ProjectFlowEx2
                 }
                 return (ok, newPt);
             },
-            _ModelTolerance
+            _ModelTolerance,
+            options.PreserveStructure
             );
-
+            _PreserveStructure = options.PreserveStructure;
         }
 
         public Result Process()
         {
+            var sw = Stopwatch.StartNew();
             bool success = false;
             var curvesToAdd = new ConcurrentBag<Curve>();
             var brepsToAdd = new ConcurrentBag<Brep>();
@@ -123,6 +120,11 @@ namespace MyChangeTools.ProjectFlowEx2
                     }
                     else if (GeometryUtils.ToBrepSafe(geom) is Brep brep)
                     {
+                        ProcessBrepHandler ProcessBrep;
+                        if (_PreserveStructure)
+                            ProcessBrep = ProcessBrepTogether; // 方法组 -> 委托转换
+                        else
+                            ProcessBrep = ProcessBrepSplit;
                         if (ProcessBrep(brep, out var newBreps) == Result.Success)
                         {
                             foreach (var nb in newBreps)
@@ -188,60 +190,69 @@ namespace MyChangeTools.ProjectFlowEx2
                             break;
                     }
                 }
-
+                
                 RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
                 RhinoApp.WriteLine($"Brep  成功: {brepSuccess}, 失败: {brepFail}");
+                sw.Stop();
+                RhinoApp.WriteLine($"执行时间: {sw.ElapsedMilliseconds} ms");
 
             }));
 
             success = curveSuccess + brepSuccess > 0;
+            //sw.Stop();
+
             return success ? Result.Success : Result.Failure;
         }
 
 
-        //基函数,点变化
+        // 基函数: 点变化
         private bool ProcessPoint(Point3d pt, out Point3d newPt)
         {
             newPt = Point3d.Unset;
-            Point3d fromPt, toPt;
 
+            // 1️⃣ 求投影方向
+            Vector3d projDir;
             if (_projecVectocIsNormlvector)
             {
-                if (!_baseBrep.ClosestPoint(pt, out _, out _, out _, out _, double.MaxValue, out Vector3d projNormal))
+                if (!_baseBrep.ClosestPoint(pt, out _, out _, out _, out _, double.MaxValue, out projDir))
                     return false;
-
-                projNormal.Unitize();
-                //fromPt = GeometryUtils.IntersectMeshAlongVector(_baseMeshs, pt, projNormal);
-                //toPt = GeometryUtils.IntersectMeshAlongVector(_targetMeshs, pt, projNormal);
-                fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projNormal);
-                toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projNormal);
+                projDir.Unitize();
             }
             else
             {
-                //fromPt = GeometryUtils.IntersectMeshAlongVector(_baseMeshs, pt, _projectionDirection);
-                //toPt = GeometryUtils.IntersectMeshAlongVector(_targetMeshs, pt, _projectionDirection);
-                fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, _projectionDirection);
-                toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, _projectionDirection);
+                projDir = _projectionDirection;
             }
+
+            // 2️⃣ 计算两Brep的交点
+            var fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projDir);
+            var toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projDir);
 
             if (fromPt == Point3d.Unset || toPt == Point3d.Unset)
                 return false;
 
-            Point3d projectedPt = GeometryUtils.TransformPointAlongDirection(pt, fromPt, toPt, toPt - fromPt);
-            if (projectedPt == Point3d.Unset)
-                return false;
-
+            // 3️⃣ 获取目标面法向
             if (!_targetBrep.ClosestPoint(toPt, out _, out _, out _, out _, double.MaxValue, out Vector3d targetNormal))
                 return false;
-
             targetNormal.Unitize();
 
-            newPt = _isFlowOnNormalVector
-                ? GeometryUtils.RotatePointToVector(projectedPt, toPt, targetNormal, fromPt - toPt)
-                : projectedPt;
+            // 4️⃣ 计算最终方向
+            Vector3d flowDir;
+            if (_isFlowOnNormalVector)
+            {
+                flowDir = targetNormal;
+            }
+            else
+            {
+                Vector3d moveDir = fromPt - toPt;
+                flowDir = (moveDir * targetNormal >= 0) ? moveDir : -moveDir;
+                flowDir.Unitize();
+            }
 
+            // 5️⃣ 执行变换
+            newPt = GeometryUtils.TransformPointAlongDirection(toPt, fromPt, pt, flowDir);
             return newPt != Point3d.Unset;
         }
+
 
         //基于点变换变换曲线
         private Result ProcessCurve(Curve curve, out Curve newCurve)
@@ -258,9 +269,7 @@ namespace MyChangeTools.ProjectFlowEx2
             return newCurve != null ? Result.Success : Result.Failure;
         }
 
-
-        //基于点变换变换brep
-        private Result ProcessBrep(Brep brep, out List<Brep> newBreps)
+        private Result ProcessBrepTogether(Brep brep, out List<Brep> newBreps)
         {
             brep = brep.DuplicateBrep();
             newBreps = new List<Brep>();
@@ -269,5 +278,33 @@ namespace MyChangeTools.ProjectFlowEx2
             return newBreps.Count > 0 ? Result.Success : Result.Failure;
         }
 
+
+        private Result ProcessBrepSplit(Brep brep, out List<Brep> newBreps)
+        {
+            newBreps = new List<Brep>();
+            if (brep == null || !brep.IsValid)
+                return Result.Failure;
+            //brep = brep.DuplicateBrep();
+            var results = new ConcurrentBag<Brep>();
+            Parallel.ForEach(brep.Faces, face =>
+            {
+                try
+                {
+                    // 每个面单独作为小brep
+                    Brep singleBrep = face.DuplicateFace(false);
+                    if (singleBrep != null && singleBrep.IsValid)
+                    {
+                        if (_morph.Morph(singleBrep as GeometryBase))
+                            results.Add(singleBrep);
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    _logMessages.Enqueue($"[线程异常] 面索引 {face.FaceIndex}: {ex.Message}");
+                }
+            });
+            newBreps = results.ToList();
+            return newBreps.Count > 0 ? Result.Success : Result.Failure;
+        }
     }
 }
