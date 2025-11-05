@@ -38,8 +38,8 @@ namespace MyChangeTools.ProjectFlowEx
             _isTransformToMeshToAppylyTransForm = options.IsTransformToMeshToAppylyTransForm;
             _controlPointMagnification = options.ControlPointMagnification;
 
-            _baseMeshs = Mesh.CreateFromBrep(_baseBrep, new MeshingParameters(1));
-            _targetMeshs = Mesh.CreateFromBrep(_targetBrep, new MeshingParameters(1));
+            _baseMeshs = Mesh.CreateFromBrep(_baseBrep, new MeshingParameters(0.5));
+            _targetMeshs = Mesh.CreateFromBrep(_targetBrep, new MeshingParameters(0.5));
 
         }
 
@@ -170,6 +170,7 @@ namespace MyChangeTools.ProjectFlowEx
 
         private Result ProcessBrep(Brep brep, out List<Brep> newBreps)
         {
+            brep = brep.DuplicateBrep();
             newBreps = new List<Brep>();
             var facesOut = new ConcurrentBag<Brep>(); // 线程安全集合
 
@@ -213,8 +214,8 @@ namespace MyChangeTools.ProjectFlowEx
                 return Result.Failure;
             }
 
-            MeshingParameters mp = new MeshingParameters(1);
-            Mesh[] meshes = Mesh.CreateFromBrep(brep, mp);
+            //MeshingParameters mp = new MeshingParameters(1);
+            Mesh[] meshes = Mesh.CreateFromBrep(brep, MeshingParameters.FastRenderMesh);
 
             if (meshes == null || meshes.Length == 0)
             {

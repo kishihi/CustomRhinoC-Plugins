@@ -1,10 +1,68 @@
 ﻿using Rhino;
 using Rhino.Geometry;
+using System.Collections.Generic;
 
 namespace MyChangeTools.ProjectFlow
 {
     public static class GeometryUtils
     {
+
+        public static List<Curve> GetFaceBorderCurves(BrepFace face)
+        {
+            var borders = new List<Curve>();
+            foreach (var loop in face.Loops)
+            {
+                borders.Add(loop.To3dCurve());
+            }
+            return borders;
+        }
+
+        public static List<Point3d> SamplePointsOnBrepFace(BrepFace face, int u_count = 5, int v_count = 5, double border_dist = 0.1)
+        {
+            var points = new List<Point3d>();
+            if (face == null || u_count < 1 || v_count < 1)
+                return points;
+
+            var u_domain = face.Domain(0);
+            var v_domain = face.Domain(1);
+            double u_step = (u_domain.T1 - u_domain.T0) / (u_count - 1);
+            double v_step = (v_domain.T1 - v_domain.T0) / (v_count - 1);
+
+            var borders = new List<Curve>();
+            foreach (var loop in face.Loops)
+            {
+                if (loop.LoopType == BrepLoopType.Outer)
+                    borders.Add(loop.To3dCurve());
+            }
+
+            for (int i = 0; i < u_count; i++)
+            {
+                for (int j = 0; j < v_count; j++)
+                {
+                    double u = u_domain.T0 + i * u_step;
+                    double v = v_domain.T0 + j * v_step;
+
+                    if (face.IsPointOnFace(u, v) == PointFaceRelation.Interior)
+                    {
+                        var pt = face.PointAt(u, v);
+                        double min_dist = double.MaxValue;
+
+                        foreach (var crv in borders)
+                        {
+                            if (crv.ClosestPoint(pt, out double t))
+                            {
+                                double d = pt.DistanceTo(crv.PointAt(t));
+                                if (d < min_dist) min_dist = d;
+                            }
+                        }
+
+                        if (min_dist > border_dist)
+                            points.Add(pt);
+                    }
+                }
+            }
+            return points;
+        }
 
         //把能转换的转为为brep统一处理
         public static Brep ToBrepSafe(GeometryBase geom)
