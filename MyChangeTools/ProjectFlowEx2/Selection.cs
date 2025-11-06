@@ -4,23 +4,102 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace MyChangeTools.ProjectFlowEx2
 {
+
+    [AttributeUsage(AttributeTargets.Property)]
+    public class OptionAttribute : Attribute
+    {
+        public string DisplayName { get; }
+
+        public OptionAttribute(string displayName)
+        {
+            DisplayName = displayName;
+        }
+    }
+
+    public static class OptionRegistry
+    {
+        public abstract class OptionInfo
+        {
+            public string Name;
+            public PropertyInfo Property;
+        }
+
+        public class BoolOption : OptionInfo { }
+        public class IntOption : OptionInfo { public int Min; public int Max; }
+        public class DoubleOption : OptionInfo { public double Min; public double Max; }
+
+        public static List<OptionInfo> GetOptions()
+        {
+            var result = new List<OptionInfo>();
+
+            foreach (var prop in typeof(SelectionOptions).GetProperties())
+            {
+                var attr = prop.GetCustomAttribute<OptionAttribute>();
+                if (attr == null)
+                    continue;
+
+                if (prop.PropertyType == typeof(bool))
+                {
+                    result.Add(new BoolOption
+                    {
+                        Name = attr.DisplayName,
+                        Property = prop
+                    });
+                }
+                else if (prop.PropertyType == typeof(int))
+                {
+                    result.Add(new IntOption
+                    {
+                        Name = attr.DisplayName,
+                        Property = prop,
+                        Min = 0,
+                        Max = 9999
+                    });
+                }
+                else if (prop.PropertyType == typeof(double))
+                {
+                    result.Add(new DoubleOption
+                    {
+                        Name = attr.DisplayName,
+                        Property = prop,
+                        Min = -1e6,
+                        Max = 1e6
+                    });
+                }
+            }
+            return result;
+        }
+    }
+
     public class SelectionOptions
     {
+        [Option("使用最近点法向作投影方向")]
         public bool IsNormalvectorAsProjectVector { get; set; } = false;
+
+        [Option("沿目标面法向排列")]
         public bool IsFlowOnTargetBaseNormalVector { get; set; } = true;
+
+        [Option("控制点放大倍数")]
         public int ControlPointMagnification { get; set; } = 1;
+
+        [Option("保持结构")]
         public bool PreserveStructure { get; set; } = false;
 
-        public bool QuickPreview { get; set; } = true; // 开启快速变形
+        [Option("快速预览")]
+        public bool QuickPreview { get; set; } = true;
 
-        public bool IsProcessBrepTogeTher { get; set; } = true;//整体处理brep
+        [Option("整体处理Brep")]
+        public bool IsProcessBrepTogeTher { get; set; } = true;
 
-        public bool IsCopy { get; set; } = false;//复制对象
-
+        [Option("复制对象")]
+        public bool IsCopy { get; set; } = false;
     }
 
     public class Selection
@@ -81,6 +160,7 @@ namespace MyChangeTools.ProjectFlowEx2
         }
 
 
+
         public static Result GetProjectVector(
     out Vector3d projectVector
     )
@@ -94,34 +174,45 @@ namespace MyChangeTools.ProjectFlowEx2
             int optY = go.AddOption("Y轴");
             int optZ = go.AddOption("Z轴");
             int optPick = go.AddOption("两点定义");
-            int optNormal = go.AddOption("最近点法向");
+            int optClosestPointNormal = go.AddOption("最近点法向");
 
+            var boolMap = new Dictionary<string, OptionToggle>();
+            var intMap = new Dictionary<string, OptionInteger>();
+            var doubleMap = new Dictionary<string, OptionDouble>();
+            var otherOptList = OptionRegistry.GetOptions();
 
-            var toggleIsFlowOnTargetBaseNormalVector = new OptionToggle(ProcessOption.IsFlowOnTargetBaseNormalVector, "No", "Yes");
-            int optFlowOnNormal = go.AddOptionToggle("在目标曲面法向方向排列", ref toggleIsFlowOnTargetBaseNormalVector);
+            foreach (var opt in otherOptList)
+            {
+                switch (opt)
+                {
+                    case OptionRegistry.BoolOption b:
+                        {
+                            bool cur = (bool)opt.Property.GetValue(ProcessOption);
+                            var toggle = new OptionToggle(cur, "No", "Yes");
+                            int optIndeex = go.AddOptionToggle(opt.Name, ref toggle);
+                            boolMap[opt.Name] = toggle;
+                        }
+                        break;
 
-            var opIntCp = new OptionInteger(ProcessOption.ControlPointMagnification);
-            int opControlPointMagnification = go.AddOptionInteger("控制点放大倍数", ref opIntCp);
+                    case OptionRegistry.IntOption i:
+                        {
+                            int cur = (int)opt.Property.GetValue(ProcessOption);
+                            var oh = new OptionInteger(cur, i.Min, i.Max);
+                            int optIndeex = go.AddOptionInteger(opt.Name, ref oh);
+                            intMap[opt.Name] = oh;
+                        }
+                        break;
 
-
-            var togglePreserveStructure = new OptionToggle(ProcessOption.PreserveStructure, "No", "Yes");
-            int optPreserveStructure = go.AddOptionToggle("保持结构", ref togglePreserveStructure);
-
-
-            // 新增两个 toggle：QuickPreview 和 IsProcessBrepTogeTher
-            var toggleQuickPreview = new OptionToggle(ProcessOption.QuickPreview, "No", "Yes");
-            int optQuickPreview = go.AddOptionToggle("快速预览模式", ref toggleQuickPreview);
-
-            var toggleProcessTogether = new OptionToggle(ProcessOption.IsProcessBrepTogeTher, "No", "Yes");
-            int optProcessTogether = go.AddOptionToggle("整体处理Brep", ref toggleProcessTogether);
-
-            var toggleIsCopy = new OptionToggle(ProcessOption.IsCopy, "No", "Yes");
-            int optIsCopy = go.AddOptionToggle("复制", ref toggleIsCopy);
-
-
-
-
-
+                    case OptionRegistry.DoubleOption d:
+                        {
+                            double cur = (double)opt.Property.GetValue(ProcessOption);
+                            var oh = new OptionDouble(cur, d.Min, d.Max);
+                            int optIndeex = go.AddOptionDouble(opt.Name, ref oh);
+                            doubleMap[opt.Name] = oh;
+                        }
+                        break;
+                }
+            }
 
             using (var escHandler = new MyChangeTools.Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
 
@@ -129,67 +220,79 @@ namespace MyChangeTools.ProjectFlowEx2
                 while (true)
                 {
                     var res = go.Get();
+                    if (escHandler.EscapeKeyPressed)
+                    {
+                        RhinoApp.WriteLine("用户按下 ESC，命令已取消。");
+                        return Result.Nothing;
+                    }
+
+                    if (res == GetResult.Cancel)
+                    {
+                        //默认使用 Z 轴方向
+                        projectVector = Vector3d.ZAxis;
+                        break;
+                    }
+
                     if (res == GetResult.Option)
                     {
-                        int index = go.OptionIndex();
-                        if (index == optX)
+                        var chosen = go.Option();
+                        string name = chosen.EnglishName;
+                        int optindex = chosen.Index;
+
+                        // 处理自定义选项
+                        foreach (var opt in otherOptList)
+                        {
+                            if (opt.Name != name) continue;
+
+                            switch (opt)
+                            {
+                                case OptionRegistry.BoolOption b:
+                                    opt.Property.SetValue(ProcessOption, boolMap[name].CurrentValue);
+                                    RhinoApp.WriteLine($"{name}: {boolMap[name].CurrentValue}");
+                                    break;
+                                case OptionRegistry.IntOption i:
+                                    opt.Property.SetValue(ProcessOption, intMap[name].CurrentValue);
+                                    RhinoApp.WriteLine($"{name}: {intMap[name].CurrentValue}");
+                                    break;
+                                case OptionRegistry.DoubleOption d:
+                                    opt.Property.SetValue(ProcessOption, doubleMap[name].CurrentValue);
+                                    RhinoApp.WriteLine($"{name}: {doubleMap[name].CurrentValue}");
+                                    break;
+                            }
+                        }
+
+                        // 处理内置方向选项
+                        if (optindex == optX)
+                        {
                             projectVector = Vector3d.XAxis;
-                        else if (index == optFlowOnNormal)
-                        {
-                            ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                            RhinoApp.WriteLine($"在目标曲面法向方向排列:{ProcessOption.IsFlowOnTargetBaseNormalVector}");
-                            continue;
-                        }
-                        else if (index == optIsCopy)
-                        {
-                            ProcessOption.IsCopy = toggleIsCopy.CurrentValue;
-                            RhinoApp.WriteLine($"复制对象:{ProcessOption.IsCopy}");
-                            continue;
-                        }
-                        else if (index == optPreserveStructure)
-                        {
-                            ProcessOption.PreserveStructure = togglePreserveStructure.CurrentValue;
-                            RhinoApp.WriteLine($"保持结构:{ProcessOption.PreserveStructure}");
-                            continue;
+                            RhinoApp.WriteLine($"XAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            break;
                         }
 
-                        else if (index == optQuickPreview)
+                        else if (optindex == optY)
                         {
-                            ProcessOption.QuickPreview = toggleQuickPreview.CurrentValue;
-                            RhinoApp.WriteLine($"快速预览模式: {ProcessOption.QuickPreview}");
-                            continue;
-                        }
-                        else if (index == optProcessTogether)
-                        {
-                            ProcessOption.IsProcessBrepTogeTher = toggleProcessTogether.CurrentValue;
-                            RhinoApp.WriteLine($"整体处理Brep: {ProcessOption.IsProcessBrepTogeTher}");
-                            continue;
-                        }
-
-                        else if (index == opControlPointMagnification)
-                        {
-                            ProcessOption.ControlPointMagnification = opIntCp.CurrentValue;
-                            RhinoApp.WriteLine($"控制点放大倍数:{ProcessOption.ControlPointMagnification}");
-                            continue;
-
-                        }
-
-                        else if (index == optY)
                             projectVector = Vector3d.YAxis;
-                        else if (index == optZ)
+                            RhinoApp.WriteLine($"YAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            break;
+                        }
+                        else if (optindex == optZ)
+                        {
                             projectVector = Vector3d.ZAxis;
-                        else if (index == optNormal)
+                            RhinoApp.WriteLine($"ZAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            break;
+                        }
+                        else if (optindex == optClosestPointNormal)
                         {
                             projectVector = Vector3d.Unset;
                             ProcessOption.IsNormalvectorAsProjectVector = true;
-                            RhinoApp.WriteLine($"基准面上最近点法向作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
-                            return Result.Success;
+                            RhinoApp.WriteLine($"在基准面的最近点法向作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            break;
                         }
-                        else if (index == optPick)
+                        else if (optindex == optPick)
                         {
-                            // 通过两点定义方向
                             if (RhinoGet.GetPoint("选择第一个点", false, out Point3d p1) != Result.Success)
                                 return Result.Cancel;
+                            
                             if (RhinoGet.GetPoint("选择第二个点", false, out Point3d p2) != Result.Success)
                                 return Result.Cancel;
 
@@ -197,36 +300,32 @@ namespace MyChangeTools.ProjectFlowEx2
                             if (!projectVector.Unitize())
                             {
                                 RhinoApp.WriteLine("两点重合，方向无效。请重新选择方向。");
-                                continue; // 重新选择
+                                continue; // 继续循环，重新获取选项
                             }
+                            break; // 成功获取方向，退出
                         }
-                        ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                        break;
-                    }
-                    else if (escHandler.EscapeKeyPressed)
-                    {
-                        RhinoApp.WriteLine("用户按下 ESC，命令已取消。");
-                        return Result.Nothing;
-                    }
-                    else if (res == GetResult.Cancel)
-                    {
-                        //默认使用 Z 轴方向
-                        projectVector = Vector3d.ZAxis;
-                        ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
-                        return Result.Success;
                     }
                     else
                     {
-                        RhinoApp.WriteLine("请通过选项选择方向或使用两点定义。");
+                        break; // 非 Option 或 Cancel，退出循环
                     }
 
                 }
+
             }
 
-            projectVector.Unitize();
-
+            if (projectVector == Vector3d.Unset)
+            {
+                // 未设置方向，保持 Unset（用于后续“最近点法向”逻辑）
+            }
+            else if (!projectVector.Unitize())
+            {
+                return Result.Failure; // 理论上不会发生，除非是零向量
+            }
             return Result.Success;
         }
+
+
 
 
     }

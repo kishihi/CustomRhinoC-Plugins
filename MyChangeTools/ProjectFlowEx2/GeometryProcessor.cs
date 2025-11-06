@@ -229,7 +229,7 @@ namespace MyChangeTools.ProjectFlowEx2
 
             // 1️⃣ 求投影方向
             Vector3d projDir;
-            if (_projecVectocIsNormlvector)
+            if (_projecVectocIsNormlvector && _projectionDirection == Vector3d.Unset)
             {
                 if (!_baseBrep.ClosestPoint(pt, out _, out _, out _, out _, double.MaxValue, out projDir))
                     return false;
@@ -243,6 +243,8 @@ namespace MyChangeTools.ProjectFlowEx2
             // 2️⃣ 计算两Brep的交点
             var fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projDir);
             var toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projDir);
+            //_logObjs.Enqueue(new Point(fromPt));
+            //_logObjs.Enqueue(new Point(toPt));
 
             if (fromPt == Point3d.Unset || toPt == Point3d.Unset)
                 return false;
