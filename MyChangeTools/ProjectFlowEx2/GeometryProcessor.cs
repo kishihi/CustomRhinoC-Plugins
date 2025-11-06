@@ -58,6 +58,8 @@ namespace MyChangeTools.ProjectFlowEx2
         private readonly bool _PreserveStructure;
         private readonly bool _IsProcessBrepTogeTher;
 
+        private readonly bool _IsCopy;
+
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep baseBrep, Brep targetBrep, Vector3d projectionDirection, SelectionOptions options)
@@ -91,6 +93,8 @@ namespace MyChangeTools.ProjectFlowEx2
             );
             _PreserveStructure = options.PreserveStructure;
             _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
+
+            _IsCopy = options.IsCopy;
         }
 
         public Result Process()
@@ -192,6 +196,15 @@ namespace MyChangeTools.ProjectFlowEx2
                         default:
                             RhinoApp.WriteLine($"未知几何类型: {g.ObjectType}");
                             break;
+                    }
+                }
+
+                if (!_IsCopy)
+                {
+                    //_doc.Objects.Delete()
+                    foreach (ObjRef obf in _objRefs)
+                    {
+                        _doc.Objects.Delete(obf, true);
                     }
                 }
 

@@ -19,6 +19,8 @@ namespace MyChangeTools.ProjectFlowEx2
 
         public bool IsProcessBrepTogeTher { get; set; } = true;//整体处理brep
 
+        public bool IsCopy { get; set; } = false;//复制对象
+
     }
 
     public class Selection
@@ -113,6 +115,11 @@ namespace MyChangeTools.ProjectFlowEx2
             var toggleProcessTogether = new OptionToggle(ProcessOption.IsProcessBrepTogeTher, "No", "Yes");
             int optProcessTogether = go.AddOptionToggle("整体处理Brep", ref toggleProcessTogether);
 
+            var toggleIsCopy = new OptionToggle(ProcessOption.IsCopy, "No", "Yes");
+            int optIsCopy = go.AddOptionToggle("复制", ref toggleIsCopy);
+
+
+
 
 
 
@@ -131,6 +138,12 @@ namespace MyChangeTools.ProjectFlowEx2
                         {
                             ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
                             RhinoApp.WriteLine($"在目标曲面法向方向排列:{ProcessOption.IsFlowOnTargetBaseNormalVector}");
+                            continue;
+                        }
+                        else if (index == optIsCopy)
+                        {
+                            ProcessOption.IsCopy = toggleIsCopy.CurrentValue;
+                            RhinoApp.WriteLine($"复制对象:{ProcessOption.IsCopy}");
                             continue;
                         }
                         else if (index == optPreserveStructure)
