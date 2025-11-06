@@ -398,6 +398,15 @@ namespace MyChangeTools.ProjectFlowEx2
             return A + projectedMove;
         }
 
+        public static Point3d MovePointAlongVector(Point3d point, Vector3d direction, double distance)
+        {
+            var d = direction;
+            if (!d.Unitize())
+                return Point3d.Unset;
+            return point + d * distance;
+        }
+
+
         public static Point3d RotatePointToVector(Point3d a, Point3d basePoint, Vector3d targetVec, Vector3d baseVec)
         {
             if (!baseVec.Unitize() || !targetVec.Unitize()) return Point3d.Unset;

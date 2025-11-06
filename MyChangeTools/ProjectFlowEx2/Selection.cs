@@ -15,6 +15,10 @@ namespace MyChangeTools.ProjectFlowEx2
         public int ControlPointMagnification { get; set; } = 1;
         public bool PreserveStructure { get; set; } = false;
 
+        public bool QuickPreview { get; set; } = true; // 开启快速变形
+
+        public bool IsProcessBrepTogeTher { get; set; } = true;//整体处理brep
+
     }
 
     public class Selection
@@ -102,6 +106,16 @@ namespace MyChangeTools.ProjectFlowEx2
             int optPreserveStructure = go.AddOptionToggle("保持结构", ref togglePreserveStructure);
 
 
+            // 新增两个 toggle：QuickPreview 和 IsProcessBrepTogeTher
+            var toggleQuickPreview = new OptionToggle(ProcessOption.QuickPreview, "No", "Yes");
+            int optQuickPreview = go.AddOptionToggle("快速预览模式", ref toggleQuickPreview);
+
+            var toggleProcessTogether = new OptionToggle(ProcessOption.IsProcessBrepTogeTher, "No", "Yes");
+            int optProcessTogether = go.AddOptionToggle("整体处理Brep", ref toggleProcessTogether);
+
+
+
+
             using (var escHandler = new MyChangeTools.Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
 
             {
@@ -125,6 +139,20 @@ namespace MyChangeTools.ProjectFlowEx2
                             RhinoApp.WriteLine($"保持结构:{ProcessOption.PreserveStructure}");
                             continue;
                         }
+
+                        else if (index == optQuickPreview)
+                        {
+                            ProcessOption.QuickPreview = toggleQuickPreview.CurrentValue;
+                            RhinoApp.WriteLine($"快速预览模式: {ProcessOption.QuickPreview}");
+                            continue;
+                        }
+                        else if (index == optProcessTogether)
+                        {
+                            ProcessOption.IsProcessBrepTogeTher = toggleProcessTogether.CurrentValue;
+                            RhinoApp.WriteLine($"整体处理Brep: {ProcessOption.IsProcessBrepTogeTher}");
+                            continue;
+                        }
+
                         else if (index == opControlPointMagnification)
                         {
                             ProcessOption.ControlPointMagnification = opIntCp.CurrentValue;

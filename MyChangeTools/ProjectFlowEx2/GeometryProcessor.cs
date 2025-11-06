@@ -17,11 +17,12 @@ namespace MyChangeTools.ProjectFlowEx2
     {
         private readonly Func<Point3d, (bool ok, Point3d newPt)> _processPointFunc;
 
-        public MyPointFieldMorph(Func<Point3d, (bool ok, Point3d newPt)> processPointFunc, double tolerance,bool preserveStructure)
+        public MyPointFieldMorph(Func<Point3d, (bool ok, Point3d newPt)> processPointFunc, double tolerance, bool preserveStructure, bool quickPreview)
         {
             _processPointFunc = processPointFunc;
             PreserveStructure = preserveStructure;
             Tolerance = tolerance;
+            QuickPreview = quickPreview;
         }
 
         public override Point3d MorphPoint(Point3d point)
@@ -55,6 +56,7 @@ namespace MyChangeTools.ProjectFlowEx2
         // 构建 Morph 对象
         private readonly MyPointFieldMorph _morph;
         private readonly bool _PreserveStructure;
+        private readonly bool _IsProcessBrepTogeTher;
 
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
@@ -84,9 +86,11 @@ namespace MyChangeTools.ProjectFlowEx2
                 return (ok, newPt);
             },
             _ModelTolerance,
-            options.PreserveStructure
+            options.PreserveStructure,
+            options.QuickPreview
             );
             _PreserveStructure = options.PreserveStructure;
+            _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
         }
 
         public Result Process()
@@ -121,7 +125,7 @@ namespace MyChangeTools.ProjectFlowEx2
                     else if (GeometryUtils.ToBrepSafe(geom) is Brep brep)
                     {
                         ProcessBrepHandler ProcessBrep;
-                        if (_PreserveStructure)
+                        if (_IsProcessBrepTogeTher)
                             ProcessBrep = ProcessBrepTogether; // 方法组 -> 委托转换
                         else
                             ProcessBrep = ProcessBrepSplit;
@@ -190,7 +194,7 @@ namespace MyChangeTools.ProjectFlowEx2
                             break;
                     }
                 }
-                
+
                 RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
                 RhinoApp.WriteLine($"Brep  成功: {brepSuccess}, 失败: {brepFail}");
                 sw.Stop();
@@ -249,7 +253,7 @@ namespace MyChangeTools.ProjectFlowEx2
             }
 
             // 5️⃣ 执行变换
-            newPt = GeometryUtils.TransformPointAlongDirection(toPt, fromPt, pt, flowDir);
+            newPt = GeometryUtils.MovePointAlongVector(toPt, flowDir,pt.DistanceTo(fromPt));
             return newPt != Point3d.Unset;
         }
 
@@ -264,7 +268,7 @@ namespace MyChangeTools.ProjectFlowEx2
 
             if (_morph.Morph(nc as GeometryBase))
                 newCurve = nc;
-            else 
+            else
                 newCurve = null;
             return newCurve != null ? Result.Success : Result.Failure;
         }
@@ -284,7 +288,7 @@ namespace MyChangeTools.ProjectFlowEx2
             newBreps = new List<Brep>();
             if (brep == null || !brep.IsValid)
                 return Result.Failure;
-            //brep = brep.DuplicateBrep();
+            brep = brep.DuplicateBrep();
             var results = new ConcurrentBag<Brep>();
             Parallel.ForEach(brep.Faces, face =>
             {
