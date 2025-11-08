@@ -1,0 +1,38 @@
+﻿@echo off
+setlocal ENABLEDELAYEDEXPANSION
+
+for %%f in ("$(TargetPath)") do set PLUGINNAME=%%~nf
+
+for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format yyMMdd.HHmm"') do set DATETIME=%%a
+
+set VERSION=$(Version)
+if exist "$(ProjectDir)Properties\AssemblyInfo.cs" (
+  for /f "tokens=2 delims==" %%b in (
+      'findstr AssemblyVersion "$(ProjectDir)Properties\AssemblyInfo.cs"'
+  ) do set VERSION=%%b
+  set VERSION=!VERSION:"=!
+)
+
+set FULLVER=v!VERSION!.!DATETIME!
+
+set TARGET=$(ProjectDir)bin\Release\!FULLVER!\$(TargetFramework)
+
+
+if not exist "!TARGET!" mkdir "!TARGET!"
+
+xcopy "$(TargetPath)" "!TARGET!\" /Y >nul
+
+@echo copied local: !TARGET!
+
+set USB_TARGET=E:\!PLUGINNAME!\!FULLVER!\$(TargetFramework)
+
+
+if exist "E:\RhinoLearn\Csharp" (
+  if not exist "!USB_TARGET!" mkdir "!USB_TARGET!"
+  xcopy "$(TargetPath)" "!USB_TARGET!\" /Y >nul
+)
+
+@echo copied USB: !USB_TARGET!
+
+@echo ✅ 已生成版本: !FULLVER! (框架: $(TargetFramework))
+endlocal
