@@ -55,10 +55,19 @@ namespace MyChangeTools.ExtendCurves
                 if (newCrv != null && newCrv.IsValid)
                 {
                     // 添加到文档
-                    doc.Objects.AddCurve(newCrv);
+                    var newCrvid = doc.Objects.AddCurve(newCrv);
                     //doc.
                     //
                     successCount++;
+
+                    var oldattr = doc.Objects.Find(crvRef.ObjectId).Attributes.Duplicate();
+
+                    var newo = doc.Objects.Find(newCrvid);
+
+                    newo.Attributes = oldattr;
+
+                    newo.CommitChanges();
+
 
                     if (extendOptions.DeleteInput)
 

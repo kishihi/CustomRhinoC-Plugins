@@ -307,6 +307,7 @@ namespace MyChangeTools.ProjectFlowEx2
                     }
                     else
                     {
+                        RhinoApp.WriteLine($"{res}");
                         break; // 非 Option 或 Cancel，退出循环
                     }
 

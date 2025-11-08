@@ -15,8 +15,6 @@
 	</PropertyGroup>
 
 
-	
-
 	<PropertyGroup>
 		<!-- Specifies information for Assembly and Yak -->
 		
@@ -45,7 +43,15 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="RhinoCommon" Version="8.24.25281.15001" /> 
+
+		<!-- <PackageReference Include="RhinoCommon" Version="8.24.25281.15001" />  -->
+
+
+		<Reference Include="RhinoCommon">
+			<HintPath>C:\Program Files\Rhino 7\System\RhinoCommon.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+
 	</ItemGroup>
 
 
