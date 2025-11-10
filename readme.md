@@ -10,7 +10,7 @@
 
 1. SelectIntersect 选择相交的物体 (brep / point / mesh / subd / curve ) intersect (brep / point / mesh / subd / curve )
 2. SelectAboveSurface 选择在曲面 above / below / on 的物体 (基于物体质心)
-3. SelectSimilarCurve 选择相似曲线 (similiar threshold , unseprojection in PlaneXZ/XY/ZY)
+3. SelectSimilarCurve 选择相似曲线 (similiar threshold , unseprojection in PlaneXZ/XY/ZY), 待改进..
 
 
 ### MyChangeTools 
