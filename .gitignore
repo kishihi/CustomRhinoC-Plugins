@@ -107,3 +107,5 @@ Thumbs.db
 # 若想保留正式 Release 输出，可解开下列注释：
 # !**/[Rr]elease/
 # !**/[Rr]elease/**
+/MyChangeTools/ToList.md
+/MyChangeTools/PostBuildEvent.txt
