@@ -6,7 +6,7 @@ using Rhino.Input;
 using System;
 using System.Collections.Generic;
 
-namespace MyChangeTools.ProjectFlow
+namespace MyChangeTools.commands.ProjectFlow
 {
     public class GeometryProcessor
     {

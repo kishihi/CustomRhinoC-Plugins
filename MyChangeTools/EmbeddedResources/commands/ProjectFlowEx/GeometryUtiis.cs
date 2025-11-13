@@ -1,6 +1,6 @@
 ﻿using Rhino.Geometry;
 
-namespace MyChangeTools.ProjectFlowEx
+namespace MyChangeTools.commands.ProjectFlowEx
 {
     public static class GeometryUtils
     {

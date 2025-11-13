@@ -2,7 +2,7 @@
 using Rhino.Geometry;
 using System.Collections.Generic;
 
-namespace MyChangeTools.ProjectFlow
+namespace MyChangeTools.commands.ProjectFlow
 {
     public static class GeometryUtils
     {

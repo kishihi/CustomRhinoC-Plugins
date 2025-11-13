@@ -4,7 +4,7 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Input;
 
-namespace MyChangeTools.ProjectFlow
+namespace MyChangeTools.commands.ProjectFlow
 {
     public class ProjectFlow : Command
     {

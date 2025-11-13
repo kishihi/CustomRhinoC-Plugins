@@ -10,7 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MyChangeTools.ProjectFlowEx2
+namespace MyChangeTools.commands.ProjectFlowEx2
 {
 
     public class MyPointFieldMorph : SpaceMorph
@@ -60,6 +60,10 @@ namespace MyChangeTools.ProjectFlowEx2
 
         private readonly bool _IsCopy;
 
+        private readonly bool __ShowLogObj;
+
+        private int _failTranPointCount = 0;
+
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep baseBrep, Brep targetBrep, Vector3d projectionDirection, SelectionOptions options)
@@ -76,13 +80,17 @@ namespace MyChangeTools.ProjectFlowEx2
             _ModelTolerance = _doc?.ModelAbsoluteTolerance ?? RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
 
 
+            //是否展示LogObj
+            __ShowLogObj = options.ShowLogObj;
+
+
             _morph = new MyPointFieldMorph(pt =>
             {
                 var ok = ProcessPoint(pt, out var newPt);
                 if (!ok)
                 {
-
-                    _logMessages.Enqueue("应用点变换失败,保持原点");
+                    _failTranPointCount++;
+                    _logObjs.Enqueue(new Point(pt));
 
                 }
                 return (ok, newPt);
@@ -95,6 +103,8 @@ namespace MyChangeTools.ProjectFlowEx2
             _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
 
             _IsCopy = options.IsCopy;
+
+
         }
 
         public Result Process()
@@ -103,6 +113,22 @@ namespace MyChangeTools.ProjectFlowEx2
             bool success = false;
             var curvesToAdd = new ConcurrentBag<Curve>();
             var brepsToAdd = new ConcurrentBag<Brep>();
+
+            var failObj = new ConcurrentBag<ObjRef>();
+
+            // 记录每个对象对应的群组信息
+            var objGroupMap = new Dictionary<Guid, int[]>();
+            foreach (var objRef in _objRefs)
+            {
+                var rhObj = objRef.Object();
+                if (rhObj != null)
+                {
+                    var groups = rhObj.Attributes.GetGroupList();
+                    if (groups != null && groups.Length > 0)
+                        objGroupMap[objRef.ObjectId] = groups;
+                }
+            }
+
 
             int curveSuccess = 0, curveFail = 0;
             int brepSuccess = 0, brepFail = 0;
@@ -124,6 +150,7 @@ namespace MyChangeTools.ProjectFlowEx2
                         else
                         {
                             Interlocked.Increment(ref curveFail);
+                            failObj.Add(objRef);
                         }
                     }
                     else if (GeometryUtils.ToBrepSafe(geom) is Brep brep)
@@ -142,6 +169,7 @@ namespace MyChangeTools.ProjectFlowEx2
                         else
                         {
                             Interlocked.Increment(ref brepFail);
+                            failObj.Add(objRef);
                         }
                     }
                     else
@@ -186,16 +214,25 @@ namespace MyChangeTools.ProjectFlowEx2
 
                 while (_logObjs.TryDequeue(out GeometryBase g))
                 {
-                    switch (g)
+
+                    if (__ShowLogObj)
                     {
-                        case Curve c: _doc.Objects.AddCurve(c); break;
-                        case Brep b: _doc.Objects.AddBrep(b); break;
-                        case Mesh m: _doc.Objects.AddMesh(m); break;
-                        case Point p: _doc.Objects.AddPoint(p.Location); break;
-                        case SubD sd: _doc.Objects.AddSubD(sd); break;
-                        default:
+                        var addMap = new Dictionary<Type, Func<object, Guid>>
+                            {
+                                { typeof(Curve), o => _doc.Objects.AddCurve((Curve)o) },
+                                { typeof(Brep),  o => _doc.Objects.AddBrep((Brep)o) },
+                                { typeof(Mesh),  o => _doc.Objects.AddMesh((Mesh)o) },
+                                { typeof(Point), o => _doc.Objects.AddPoint(((Point)o).Location) },
+                                { typeof(SubD),  o => _doc.Objects.AddSubD((SubD)o) }
+                            };
+
+                        Guid id = addMap.TryGetValue(g.GetType(), out var addFunc)
+                            ? addFunc(g)
+                            : Guid.Empty;
+                        if (id == Guid.Empty)
                             RhinoApp.WriteLine($"未知几何类型: {g.ObjectType}");
-                            break;
+                        else
+                            _doc.Objects.Select(id);
                     }
                 }
 
@@ -210,8 +247,13 @@ namespace MyChangeTools.ProjectFlowEx2
 
                 RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
                 RhinoApp.WriteLine($"Brep  成功: {brepSuccess}, 失败: {brepFail}");
+                RhinoApp.WriteLine($"ControlPoint Failed {_failTranPointCount}");
                 sw.Stop();
                 RhinoApp.WriteLine($"执行时间: {sw.ElapsedMilliseconds} ms");
+                foreach (var fo in failObj)
+                {
+                    _doc.Objects.Select(fo.ObjectId);
+                }
 
             }));
 
@@ -229,11 +271,10 @@ namespace MyChangeTools.ProjectFlowEx2
 
             // 1️⃣ 求投影方向
             Vector3d projDir;
-            if (_projecVectocIsNormlvector && _projectionDirection == Vector3d.Unset)
+            if (_projecVectocIsNormlvector && !_projectionDirection.IsValid)
             {
                 if (!_baseBrep.ClosestPoint(pt, out _, out _, out _, out _, double.MaxValue, out projDir))
                     return false;
-                projDir.Unitize();
             }
             else
             {
@@ -248,25 +289,34 @@ namespace MyChangeTools.ProjectFlowEx2
                 return false;
 
             // 3️⃣ 获取目标面法向
-            if (!_targetBrep.ClosestPoint(toPt, out _, out _, out _, out _, double.MaxValue, out Vector3d targetNormal))
+            if (!_targetBrep.ClosestPoint(toPt, out _, out _, out _, out _, _ModelTolerance * 10, out Vector3d targetNormal))
                 return false;
-            targetNormal.Unitize();
 
             // 4️⃣ 计算最终方向
             Vector3d flowDir;
-            if (_isFlowOnNormalVector)
+            Vector3d ptLocationOnBase = pt - fromPt; //判断初始点在基础曲面的上方还是下方
+            if (ptLocationOnBase.Length > _ModelTolerance) //长度大于容差
             {
-                flowDir = targetNormal;
+                bool isPositive = targetNormal * ptLocationOnBase >= 0;
+                if (_isFlowOnNormalVector)
+                {
+                    flowDir = isPositive ? targetNormal : -targetNormal;
+
+                }
+                else
+                {
+                    Vector3d MoveVector = fromPt - toPt;
+                    flowDir = isPositive ? MoveVector : -MoveVector;
+                }
+
+
+                // 5️⃣ 执行变换
+                newPt = GeometryUtils.MovePointAlongVector(toPt, flowDir, pt.DistanceTo(fromPt));
             }
             else
             {
-                Vector3d moveDir = fromPt - toPt;
-                flowDir = (moveDir * targetNormal >= 0) ? moveDir : -moveDir;
-                flowDir.Unitize();
+                newPt = toPt;
             }
-
-            // 5️⃣ 执行变换
-            newPt = GeometryUtils.MovePointAlongVector(toPt, flowDir,pt.DistanceTo(fromPt));
             return newPt != Point3d.Unset;
         }
 
@@ -274,6 +324,7 @@ namespace MyChangeTools.ProjectFlowEx2
         //基于点变换变换曲线
         private Result ProcessCurve(Curve curve, out Curve newCurve)
         {
+            curve = curve.DuplicateCurve();
             var nc = curve as NurbsCurve ?? curve.ToNurbsCurve();
 
             if (_controlPointMagnification > 1)
@@ -315,7 +366,7 @@ namespace MyChangeTools.ProjectFlowEx2
                             results.Add(singleBrep);
                     }
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
                     _logMessages.Enqueue($"[线程异常] 面索引 {face.FaceIndex}: {ex.Message}");
                 }

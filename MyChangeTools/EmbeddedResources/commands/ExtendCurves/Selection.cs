@@ -4,7 +4,7 @@ using Rhino.DocObjects;
 using Rhino.Input;
 using Rhino.Input.Custom;
 
-namespace MyChangeTools.ExtendCurves
+namespace MyChangeTools.commands.ExtendCurves
 {
     internal class ExtendOptions
     {
@@ -22,7 +22,7 @@ namespace MyChangeTools.ExtendCurves
         {
             var go = new GetObject();
             go.SetCommandPrompt("选择要延伸的曲线");
-            go.GeometryFilter = Rhino.DocObjects.ObjectType.Curve;
+            go.GeometryFilter = ObjectType.Curve;
             go.SubObjectSelect = false;
             go.EnablePreSelect(true, true);
             go.GroupSelect = true;

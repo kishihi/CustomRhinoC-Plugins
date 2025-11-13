@@ -8,7 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MyChangeTools.ProjectFlowEx
+namespace MyChangeTools.commands.ProjectFlowEx
 {
     public class GeometryProcessor
     {

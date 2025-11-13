@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace MyChangeTools.ProjectFlowEx2
+namespace MyChangeTools.commands.ProjectFlowEx2
 {
     public static class GeometryUtils
     {

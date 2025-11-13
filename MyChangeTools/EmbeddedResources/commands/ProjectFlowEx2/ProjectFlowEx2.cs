@@ -3,7 +3,7 @@ using Rhino.Commands;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 
-namespace MyChangeTools.ProjectFlowEx2
+namespace MyChangeTools.commands.ProjectFlowEx2
 {
     public class ProjectFlowEx2 : Command
     {

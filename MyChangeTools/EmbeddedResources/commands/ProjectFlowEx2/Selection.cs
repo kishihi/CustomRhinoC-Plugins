@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace MyChangeTools.ProjectFlowEx2
+namespace MyChangeTools.commands.ProjectFlowEx2
 {
 
     [AttributeUsage(AttributeTargets.Property)]
@@ -95,8 +95,13 @@ namespace MyChangeTools.ProjectFlowEx2
         [Option("快速预览")]
         public bool QuickPreview { get; set; } = true;
 
+
+        [Option("ShowLogObj")]
+        public bool ShowLogObj { get; set; } = false;
+
+
         [Option("整体处理Brep")]
-        public bool IsProcessBrepTogeTher { get; set; } = true;
+        public bool IsProcessBrepTogeTher { get; set; } = false;
 
         [Option("复制对象")]
         public bool IsCopy { get; set; } = false;
@@ -214,7 +219,7 @@ namespace MyChangeTools.ProjectFlowEx2
                 }
             }
 
-            using (var escHandler = new MyChangeTools.Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
+            using (var escHandler = new Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
 
             {
                 while (true)
@@ -265,20 +270,20 @@ namespace MyChangeTools.ProjectFlowEx2
                         if (optindex == optX)
                         {
                             projectVector = Vector3d.XAxis;
-                            RhinoApp.WriteLine($"XAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            RhinoApp.WriteLine($"XAxis作为投影方向");
                             break;
                         }
 
                         else if (optindex == optY)
                         {
                             projectVector = Vector3d.YAxis;
-                            RhinoApp.WriteLine($"YAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            RhinoApp.WriteLine($"YAxis作为投影方向");
                             break;
                         }
                         else if (optindex == optZ)
                         {
                             projectVector = Vector3d.ZAxis;
-                            RhinoApp.WriteLine($"ZAxis作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
+                            RhinoApp.WriteLine($"ZAxis作为投影方向");
                             break;
                         }
                         else if (optindex == optClosestPointNormal)

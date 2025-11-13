@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 
-namespace MyChangeTools.AutoDistinctColor
+namespace MyChangeTools.commands.AutoDistinctColor
 {
     internal class Process
     {
@@ -142,7 +142,7 @@ namespace MyChangeTools.AutoDistinctColor
 
             for (int i = 0; i < count; i++)
             {
-                h = (i * goldenAngle) % 360.0;
+                h = i * goldenAngle % 360.0;
 
                 // 固定高饱和高明度，非常醒目且差异明显
                 double s = 0.90;

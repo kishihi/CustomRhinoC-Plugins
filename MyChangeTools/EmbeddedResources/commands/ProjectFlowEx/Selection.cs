@@ -1,51 +1,27 @@
 ﻿using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
-using Rhino.Input;
 using Rhino.Geometry;
+using Rhino.Input;
 using Rhino.Input.Custom;
 using System.Linq;
 
-namespace MyChangeTools.ProjectFlow
+namespace MyChangeTools.commands.ProjectFlowEx
 {
-    public class SelectionHelper
+    public class SelectionOptions
     {
-        //public static Result SelectGeometry(RhinoDoc doc, string prompt, ObjectType filter, out GeometryBase geometry)
-        //{
-        //    geometry = null;
-        //    var rc = RhinoGet.GetOneObject(prompt, false, filter, out ObjRef objRef);
-        //    if (rc != Result.Success) return rc;
+        public bool IsNormalvectorAsProjectVector { get; set; } = false;
+        public bool IsFlowOnTargetBaseNormalVector { get; set; } = true;
+        public bool IsTransformToMeshToAppylyTransForm { get; set; } = false;
+        public int ControlPointMagnification { get; set; } = 1;
+    }
 
-        //    geometry = objRef.Geometry();
-        //    if (geometry == null) return Result.Failure;
+    public class Selection
+    {
 
-        //    doc.Objects.UnselectAll();
-        //    return Result.Success;
-        //}
+        public static SelectionOptions ProcessOption = new SelectionOptions();
 
-        /// <summary>
-        /// 从 Rhino 界面中选择几何对象，返回 ObjRef 数组。
-        /// </summary>
-        //public static Result SelectGeometries(
-        //    RhinoDoc doc,
-        //    string prompt,
-        //    ObjectType filter,
-        //    out ObjRef[] objRefs)
-        //{
-        //    objRefs = null;
-        //    var rc = RhinoGet.GetMultipleObjects(prompt, false, filter, out objRefs);
-        //    if (rc != Result.Success || objRefs == null || objRefs.Length == 0)
-        //        return Result.Cancel; // 用户取消或无选择
 
-        //    // 清除选择状态，避免影响后续命令
-        //    doc.Objects.UnselectAll();
-        //    // 检查是否存在无效引用
-        //    objRefs = objRefs.Where(o => o != null && o.Object() != null).ToArray();
-        //    if (objRefs.Length == 0)
-        //        return Result.Failure;
-
-        //    return Result.Success;
-        //}
         public static Result SelectGeometries(
     RhinoDoc doc,
     string prompt,
@@ -59,11 +35,11 @@ namespace MyChangeTools.ProjectFlow
 
             go.EnablePreSelect(true, true);
 
-            go.GroupSelect=true;
+            go.GroupSelect = true;
 
             go.GeometryFilter = filter;
 
-            go.GetMultiple(1, 0); // 1 = 最少1个对象, 0 = 无限个
+            go.GetMultiple(1, 0); 
 
             if (go.CommandResult() != Result.Success)
                 return go.CommandResult();
@@ -98,22 +74,11 @@ namespace MyChangeTools.ProjectFlow
         }
 
 
-        /// <summary>
-        /// 让用户选择投影方向，可以通过两点确定，也可以选择 X/Y/Z 轴
-        /// </summary>
         public static Result GetProjectVector(
-    out Vector3d projectVector,
-    out bool isNormalVector,
-    out bool isFlowOnNormalVector,
-    out bool isTransformToMeshToAppylyTransForm,
-    out int controlPointMagnification
+    out Vector3d projectVector
     )
         {
-            isNormalVector = false;
-            isFlowOnNormalVector = true;
-            isTransformToMeshToAppylyTransForm = false;
             projectVector = Vector3d.Unset;
-            controlPointMagnification = 4;
 
             var go = new GetOption();
             go.SetCommandPrompt("选择投影方向 (输入选项或通过两点定义方向, 默认 Z 轴)");
@@ -124,15 +89,15 @@ namespace MyChangeTools.ProjectFlow
             int optPick = go.AddOption("两点定义");
             int optNormal = go.AddOption("最近点法向");
 
-            var toggle0 = new OptionToggle(false, "No", "Yes");
-            int opIsTransformToMeshToAppylyTransForm = go.AddOptionToggle("isTransformToMeshToAppylyTransForm", ref toggle0);
+            var toggleIsTransformToMeshToAppylyTransForm = new OptionToggle(ProcessOption.IsTransformToMeshToAppylyTransForm, "No", "Yes");
+            int opIsTransformToMeshToAppylyTransForm = go.AddOptionToggle("转换成网格运算", ref toggleIsTransformToMeshToAppylyTransForm);
 
-            var toggle = new OptionToggle(true, "No", "Yes");
-            int optFlowOnNormal = go.AddOptionToggle("在目标曲面法向方向排列", ref toggle);
+            var toggleIsFlowOnTargetBaseNormalVector = new OptionToggle(ProcessOption.IsFlowOnTargetBaseNormalVector, "No", "Yes");
+            int optFlowOnNormal = go.AddOptionToggle("在目标曲面法向方向排列", ref toggleIsFlowOnTargetBaseNormalVector);
 
-            var opIntCp = new OptionInteger(4);
+            var opIntCp = new OptionInteger(ProcessOption.ControlPointMagnification);
 
-            int opControlPointMagnification = go.AddOptionInteger("ControlPointMagnification", ref opIntCp);
+            int opControlPointMagnification = go.AddOptionInteger("控制点放大倍数", ref opIntCp);
 
             while (true)
             {
@@ -144,20 +109,20 @@ namespace MyChangeTools.ProjectFlow
                         projectVector = Vector3d.XAxis;
                     else if (index == optFlowOnNormal)
                     {
-                        isFlowOnNormalVector = toggle.CurrentValue;
-                        RhinoApp.WriteLine($"设置在目标曲面法向方向排列:{isFlowOnNormalVector}");
+                        ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
+                        RhinoApp.WriteLine($"在目标曲面法向方向排列:{ProcessOption.IsFlowOnTargetBaseNormalVector}");
                         continue;
                     }
                     else if (index == opIsTransformToMeshToAppylyTransForm)
                     {
-                        isTransformToMeshToAppylyTransForm = toggle0.CurrentValue;
-                        RhinoApp.WriteLine($"isTransformToMeshToAppylyTransForm:{isTransformToMeshToAppylyTransForm}");
+                        ProcessOption.IsTransformToMeshToAppylyTransForm = toggleIsTransformToMeshToAppylyTransForm.CurrentValue;
+                        RhinoApp.WriteLine($"转换成网格变换:{ProcessOption.IsTransformToMeshToAppylyTransForm}");
                         continue;
                     }
                     else if (index == opControlPointMagnification)
                     {
-                        controlPointMagnification = opIntCp.CurrentValue;
-                        RhinoApp.WriteLine($"controlPointMagnification:{controlPointMagnification}");
+                        ProcessOption.ControlPointMagnification = opIntCp.CurrentValue;
+                        RhinoApp.WriteLine($"控制点放大倍数:{ProcessOption.ControlPointMagnification}");
                         continue;
 
                     }
@@ -168,8 +133,8 @@ namespace MyChangeTools.ProjectFlow
                     else if (index == optNormal)
                     {
                         projectVector = Vector3d.Unset;
-                        isNormalVector = true;
-                        isFlowOnNormalVector = toggle.CurrentValue;
+                        ProcessOption.IsNormalvectorAsProjectVector = true;
+                        RhinoApp.WriteLine($"基准面上最近点法向作为投影方向:{ProcessOption.IsNormalvectorAsProjectVector}");
                         return Result.Success;
                     }
                     else if (index == optPick)
@@ -187,24 +152,25 @@ namespace MyChangeTools.ProjectFlow
                             continue; // 重新选择
                         }
                     }
-                    isFlowOnNormalVector = toggle.CurrentValue;
+                    ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
                     break;
                 }
                 else if (res == GetResult.Cancel)
                 {
                     // 用户取消时默认使用 Z 轴方向
                     projectVector = Vector3d.ZAxis;
-                    isFlowOnNormalVector = toggle.CurrentValue;
+                    ProcessOption.IsFlowOnTargetBaseNormalVector = toggleIsFlowOnTargetBaseNormalVector.CurrentValue;
                     return Result.Success;
                 }
                 else
                 {
                     RhinoApp.WriteLine("请通过选项选择方向或使用两点定义。");
                 }
+     
+
+
             }
 
-            // 归一化方向
-            //if (!projectVector.IsTiny())
             projectVector.Unitize();
 
             return Result.Success;

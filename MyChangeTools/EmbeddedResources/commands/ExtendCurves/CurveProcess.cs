@@ -3,12 +3,12 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Commands;
 
-namespace MyChangeTools.ExtendCurves
+namespace MyChangeTools.commands.ExtendCurves
 {
     internal class CurveProcess
     {
 
-        public static Result Extend(Rhino.RhinoDoc doc, ObjRef[] curves, ExtendOptions extendOptions)
+        public static Result Extend(RhinoDoc doc, ObjRef[] curves, ExtendOptions extendOptions)
         {
             if (curves == null || curves.Length == 0)
             {

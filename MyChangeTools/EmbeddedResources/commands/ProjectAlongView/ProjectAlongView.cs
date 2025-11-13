@@ -7,7 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace MyChangeTools.ProjectAlongView
+namespace MyChangeTools.commands.ProjectAlongView
 {
 
     internal class SelectionOptions
@@ -43,7 +43,7 @@ namespace MyChangeTools.ProjectAlongView
             int opIndexDeleteInput = go.AddOptionToggle("删除输入", ref toggleDeleteInput);
 
             var picked = new Dictionary<Guid, ObjRef>();
-            using (var escHandler = new MyChangeTools.Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
+            using (var escHandler = new Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
             {
                 while (true)
                 {

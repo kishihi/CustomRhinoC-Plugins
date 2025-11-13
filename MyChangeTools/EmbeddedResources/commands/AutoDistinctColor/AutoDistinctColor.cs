@@ -4,7 +4,7 @@ using Rhino.DocObjects;
 using Rhino.Input.Custom;
 using System.Collections.Generic;
 
-namespace MyChangeTools.AutoDistinctColor
+namespace MyChangeTools.commands.AutoDistinctColor
 {
     public class AutoDistinctColor : Command
     {

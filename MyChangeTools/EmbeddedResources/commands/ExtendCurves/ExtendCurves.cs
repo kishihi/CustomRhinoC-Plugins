@@ -2,7 +2,7 @@
 using Rhino.Commands;
 using Rhino.DocObjects;
 
-namespace MyChangeTools.ExtendCurves
+namespace MyChangeTools.commands.ExtendCurves
 {
     public class ExtendCurves : Command
     {
