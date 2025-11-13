@@ -21,3 +21,4 @@
 2. ExtendCurves 批量延伸曲线 , 保持物体原来属性
 3. AutoDistinctColor 自动异色物体,自动赋予物体一个与当前文档中显示和隐藏的物体和锁定的物体颜色不同的物件颜色
 4. ProjectAlowViewZ 沿着视口(摄像头)Z方向投影曲线到曲面上(想做一个可见即可得的投影的)
+5. DualSurfaceMapping 将在面A1和面B1的物体,沿着投影方向变换到面A2和B2之间

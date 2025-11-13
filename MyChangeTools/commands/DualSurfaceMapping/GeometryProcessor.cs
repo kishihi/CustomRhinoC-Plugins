@@ -10,7 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MyChangeTools.commands.ProjectFlowEx2
+namespace MyChangeTools.commands.DualSurfaceMapping
 {
 
     public class MyPointFieldMorph : SpaceMorph
@@ -41,41 +41,41 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
     public class GeometryProcessor
     {
+
+
+        //特别参数
         private readonly RhinoDoc _doc;
-        private readonly ObjRef[] _objRefs;
-        private readonly Brep _baseBrep;
-        private readonly Brep _targetBrep;
-        private readonly Vector3d _projectionDirection;
-        private readonly bool _projecVectocIsNormlvector;
-        private readonly bool _isFlowOnNormalVector;
-        private readonly int _controlPointMagnification;
+        private readonly ObjRef[] _objRefs;//需要变换的物体
+        private readonly Brep _BrepA1;
+        private readonly Brep _BrepA2;
+        private readonly Brep _BrepB1;
+        private readonly Brep _BrepB2;
+        private readonly Vector3d _projectionDirection; //投影方向
+
+        //固定
         private readonly double _ModelTolerance;
         private readonly ConcurrentQueue<string> _logMessages = new ConcurrentQueue<string>(); // ✅ 全局日志队列
         private readonly ConcurrentQueue<GeometryBase> _logObjs = new ConcurrentQueue<GeometryBase>(); // ✅ 全局临时对象队列
+        private readonly bool __ShowLogObj;
 
         // 构建 Morph 对象
         private readonly MyPointFieldMorph _morph;
         private readonly bool _PreserveStructure;
         private readonly bool _IsProcessBrepTogeTher;
-
         private readonly bool _IsCopy;
-
-        private readonly bool __ShowLogObj;
-
         private int _failTranPointCount = 0;
 
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
-        public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep baseBrep, Brep targetBrep, Vector3d projectionDirection, SelectionOptions options)
+        public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep BrepA1, Brep BrepA2, Brep BrepB1, Brep BrepB2, Vector3d projectionDirection, SelectionOptions options)
         {
             _doc = doc;
             _objRefs = objRefs;
-            _baseBrep = GeometryUtils.ToBrepSafe(baseBrep);
-            _targetBrep = GeometryUtils.ToBrepSafe(targetBrep);
             _projectionDirection = projectionDirection;
-            _projecVectocIsNormlvector = options.IsNormalvectorAsProjectVector;
-            _isFlowOnNormalVector = options.IsFlowOnTargetBaseNormalVector;
-            _controlPointMagnification = options.ControlPointMagnification;
+            _BrepA1 = BrepA1;
+            _BrepA2 = BrepA2;
+            _BrepB1 = BrepB1;
+            _BrepB2 = BrepB2;
 
             _ModelTolerance = _doc?.ModelAbsoluteTolerance ?? RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
 
@@ -153,7 +153,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                             failObj.Add(objRef);
                         }
                     }
-                    else if (GeometryUtils.ToBrepSafe(geom) is Brep brep)
+                    else if (Mylib.GeometryUtils.ToBrepSafe(geom) is Brep brep)
                     {
                         ProcessBrepHandler ProcessBrep;
                         if (_IsProcessBrepTogeTher)
@@ -220,7 +220,6 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                 newids.ForEach(id => _doc.Objects.Select(id));
 
 
-
                 _doc.Views.Redraw();
 
                 while (_logMessages.TryDequeue(out string msg))
@@ -283,56 +282,51 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         {
             newPt = Point3d.Unset;
 
-            // 1️⃣ 求投影方向
-            Vector3d projDir;
-            if (_projecVectocIsNormlvector && !_projectionDirection.IsValid)
+            try
             {
-                if (!_baseBrep.ClosestPoint(pt, out _, out _, out _, out _, double.MaxValue, out projDir))
+                var dir = _projectionDirection;
+                if (!dir.IsValid || dir.IsZero)
                     return false;
+
+                // 1️⃣ 求交点：pt 方向上与四个面相交
+                var pa1 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepA1, pt, dir);
+                var pa2 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepA2, pt, dir);
+                var pb1 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepB1, pt, dir);
+                var pb2 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepB2, pt, dir);
+
+                if (pa1 == Point3d.Unset || pa2 == Point3d.Unset || pb1 == Point3d.Unset || pb2 == Point3d.Unset)
+                    return false;
+
+                // 2️⃣ 在旧空间(A1~B1)上计算点相对位置比例 ratio
+                var vAB_old = pb1 - pa1;
+                double denom = vAB_old * dir;
+                if (Math.Abs(denom) < _ModelTolerance)
+                    return false;
+
+                double s = (pt - pa1) * dir;
+                double ratio = s / denom;
+
+                // 只允许在 0~1 之间（避免射线穿出空间）
+                //if (ratio < -1e-6 || ratio > 1.0 + 1e-6)
+                //    return false;
+
+                // 3️⃣ 在新空间(A2~B2)上按相同 ratio 插值
+                var vAB_new = pb2 - pa2;
+                newPt = pa2 + ratio * vAB_new;
+
+                if (!newPt.IsValid || newPt == Point3d.Unset)
+                    return false;
+
+                return true;
             }
-            else
+            catch (Exception ex)
             {
-                projDir = _projectionDirection;
-            }
-
-            // 2️⃣ 计算两Brep的交点
-            var fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projDir);
-            var toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projDir);
-
-            if (fromPt == Point3d.Unset || toPt == Point3d.Unset)
+                _logMessages.Enqueue($"ProcessPoint 异常: {ex.Message}");
                 return false;
-
-            // 3️⃣ 获取目标面法向
-            if (!_targetBrep.ClosestPoint(toPt, out _, out _, out _, out _, _ModelTolerance * 10, out Vector3d targetNormal))
-                return false;
-
-            // 4️⃣ 计算最终方向
-            Vector3d flowDir;
-            Vector3d ptLocationOnBase = pt - fromPt; //判断初始点在基础曲面的上方还是下方
-            if (ptLocationOnBase.Length > _ModelTolerance) //长度大于容差
-            {
-                bool isPositive = targetNormal * ptLocationOnBase >= 0;
-                if (_isFlowOnNormalVector)
-                {
-                    flowDir = isPositive ? targetNormal : -targetNormal;
-
-                }
-                else
-                {
-                    Vector3d MoveVector = fromPt - toPt;
-                    flowDir = isPositive ? MoveVector : -MoveVector;
-                }
-
-
-                // 5️⃣ 执行变换
-                newPt = GeometryUtils.MovePointAlongVector(toPt, flowDir, pt.DistanceTo(fromPt));
             }
-            else
-            {
-                newPt = toPt;
-            }
-            return newPt != Point3d.Unset;
         }
+
+
 
 
         //基于点变换变换曲线
@@ -340,9 +334,6 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         {
             curve = curve.DuplicateCurve();
             var nc = curve as NurbsCurve ?? curve.ToNurbsCurve();
-
-            if (_controlPointMagnification > 1)
-                nc = GeometryUtils.DensifyNurbsCurve(nc, _controlPointMagnification);
 
             if (_morph.Morph(nc as GeometryBase))
                 newCurve = nc;
