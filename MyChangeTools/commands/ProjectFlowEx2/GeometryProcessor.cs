@@ -70,8 +70,8 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         {
             _doc = doc;
             _objRefs = objRefs;
-            _baseBrep = GeometryUtils.ToBrepSafe(baseBrep);
-            _targetBrep = GeometryUtils.ToBrepSafe(targetBrep);
+            _baseBrep = Mylib.GeometryUtils.ToBrepSafe(baseBrep);
+            _targetBrep = Mylib.GeometryUtils.ToBrepSafe(targetBrep);
             _projectionDirection = projectionDirection;
             _projecVectocIsNormlvector = options.IsNormalvectorAsProjectVector;
             _isFlowOnNormalVector = options.IsFlowOnTargetBaseNormalVector;
@@ -153,7 +153,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                             failObj.Add(objRef);
                         }
                     }
-                    else if (GeometryUtils.ToBrepSafe(geom) is Brep brep)
+                    else if (Mylib.GeometryUtils.ToBrepSafe(geom) is Brep brep)
                     {
                         ProcessBrepHandler ProcessBrep;
                         if (_IsProcessBrepTogeTher)
@@ -296,8 +296,8 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             }
 
             // 2️⃣ 计算两Brep的交点
-            var fromPt = GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projDir);
-            var toPt = GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projDir);
+            var fromPt = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_baseBrep, pt, projDir);
+            var toPt = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_targetBrep, pt, projDir);
 
             if (fromPt == Point3d.Unset || toPt == Point3d.Unset)
                 return false;
@@ -325,7 +325,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
 
                 // 5️⃣ 执行变换
-                newPt = GeometryUtils.MovePointAlongVector(toPt, flowDir, pt.DistanceTo(fromPt));
+                newPt = Mylib.GeometryUtils.MovePointAlongVector(toPt, flowDir, pt.DistanceTo(fromPt));
             }
             else
             {
@@ -342,7 +342,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             var nc = curve as NurbsCurve ?? curve.ToNurbsCurve();
 
             if (_controlPointMagnification > 1)
-                nc = GeometryUtils.DensifyNurbsCurve(nc, _controlPointMagnification);
+                nc = Mylib.GeometryUtils.DensifyNurbsCurve(nc, _controlPointMagnification);
 
             if (_morph.Morph(nc as GeometryBase))
                 newCurve = nc;

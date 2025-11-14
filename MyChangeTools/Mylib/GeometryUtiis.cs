@@ -282,42 +282,42 @@ namespace MyChangeTools.Mylib
         }
 
 
-        public static Point3d IntersectMeshAlongVector(Mesh[] meshes, Point3d fromPt, Vector3d dir)
-        {
-            if (meshes == null || meshes.Length == 0 || !fromPt.IsValid || !dir.IsValid)
-                return Point3d.Unset;
+        //public static Point3d IntersectMeshAlongVector(Mesh[] meshes, Point3d fromPt, Vector3d dir)
+        //{
+        //    if (meshes == null || meshes.Length == 0 || !fromPt.IsValid || !dir.IsValid)
+        //        return Point3d.Unset;
 
-            dir.Unitize();
-            double length = 1e6;
+        //    dir.Unitize();
+        //    double length = 1e6;
 
-            // 创建双向中心线（往前后各延伸）
-            Point3d p1 = fromPt - dir * length;
-            Point3d p2 = fromPt + dir * length;
-            Line centerLine = new Line(p1, p2);
+        //    // 创建双向中心线（往前后各延伸）
+        //    Point3d p1 = fromPt - dir * length;
+        //    Point3d p2 = fromPt + dir * length;
+        //    Line centerLine = new Line(p1, p2);
 
-            Point3d closest = Point3d.Unset;
-            double minDist = double.MaxValue;
+        //    Point3d closest = Point3d.Unset;
+        //    double minDist = double.MaxValue;
 
-            foreach (var mesh in meshes)
-            {
-                if (mesh == null) continue;
+        //    foreach (var mesh in meshes)
+        //    {
+        //        if (mesh == null) continue;
 
-                var hits = Rhino.Geometry.Intersect.Intersection.MeshLine(mesh, centerLine);
-                if (hits == null || hits.Length == 0) continue;
+        //        var hits = Rhino.Geometry.Intersect.Intersection.MeshLine(mesh, centerLine);
+        //        if (hits == null || hits.Length == 0) continue;
 
-                foreach (var hit in hits)
-                {
-                    double d = fromPt.DistanceTo(hit);
-                    if (d < minDist)
-                    {
-                        minDist = d;
-                        closest = hit;
-                    }
-                }
-            }
+        //        foreach (var hit in hits)
+        //        {
+        //            double d = fromPt.DistanceTo(hit);
+        //            if (d < minDist)
+        //            {
+        //                minDist = d;
+        //                closest = hit;
+        //            }
+        //        }
+        //    }
 
-            return closest;
-        }
+        //    return closest;
+        //}
 
         public static Point3d IntersectSurfaceAlongVector(Brep surface, Point3d fromPt, Vector3d dir)
         {
@@ -352,40 +352,40 @@ namespace MyChangeTools.Mylib
             return Point3d.Unset;
         }
 
-        public static Point3d IntersectMeshAlongVector(Mesh mesh, Point3d fromPt, Vector3d dir)
-        {
-            if (mesh == null || !fromPt.IsValid || !dir.IsValid)
-                return Point3d.Unset;
+        //public static Point3d IntersectMeshAlongVector(Mesh mesh, Point3d fromPt, Vector3d dir)
+        //{
+        //    if (mesh == null || !fromPt.IsValid || !dir.IsValid)
+        //        return Point3d.Unset;
 
-            dir.Unitize();
-            double length = 1e6;
+        //    dir.Unitize();
+        //    double length = 1e6;
 
-            // 创建双向中心线（往前后各延伸）
-            Point3d p1 = fromPt - dir * length;
-            Point3d p2 = fromPt + dir * length;
-            Line centerLine = new Line(p1, p2);
+        //    // 创建双向中心线（往前后各延伸）
+        //    Point3d p1 = fromPt - dir * length;
+        //    Point3d p2 = fromPt + dir * length;
+        //    Line centerLine = new Line(p1, p2);
 
-            var hits = Rhino.Geometry.Intersect.Intersection.MeshLine(mesh, centerLine);
+        //    var hits = Rhino.Geometry.Intersect.Intersection.MeshLine(mesh, centerLine);
 
-            if (hits == null || hits.Length == 0)
-                return Point3d.Unset;
+        //    if (hits == null || hits.Length == 0)
+        //        return Point3d.Unset;
 
-            // 找到距离 fromPt 最近的交点（无论正负方向）
-            Point3d closest = Point3d.Unset;
-            double minDist = double.MaxValue;
+        //    // 找到距离 fromPt 最近的交点（无论正负方向）
+        //    Point3d closest = Point3d.Unset;
+        //    double minDist = double.MaxValue;
 
-            foreach (var hit in hits)
-            {
-                double d = fromPt.DistanceTo(hit);
-                if (d < minDist)
-                {
-                    minDist = d;
-                    closest = hit;
-                }
-            }
+        //    foreach (var hit in hits)
+        //    {
+        //        double d = fromPt.DistanceTo(hit);
+        //        if (d < minDist)
+        //        {
+        //            minDist = d;
+        //            closest = hit;
+        //        }
+        //    }
 
-            return closest;
-        }
+        //    return closest;
+        //}
 
 
         public static Point3d TransformPointAlongDirection(Point3d A, Point3d B1, Point3d B2, Vector3d vectorA)
