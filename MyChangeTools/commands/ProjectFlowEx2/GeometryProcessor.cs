@@ -55,8 +55,14 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
         // 构建 Morph 对象
         private readonly MyPointFieldMorph _morph;
-        private readonly bool _PreserveStructure;
+        //private readonly bool _PreserveStructure;
         private readonly bool _IsProcessBrepTogeTher;
+
+        private readonly ConcurrentDictionary<Point3d, Point3d> _ptMapping =
+    new ConcurrentDictionary<Point3d, Point3d>();
+
+
+        //private readonly ConcurrentBag<ObjRef>  _failObj = new ConcurrentBag<ObjRef>();
 
         private readonly bool _IsCopy;
 
@@ -65,6 +71,28 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         private int _failTranPointCount = 0;
 
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
+
+
+        private (bool ok, Point3d newPt) TryMapOrProcess(Point3d pt)
+        {
+            // 如果已存在 → 直接返回
+            if (_ptMapping.TryGetValue(pt, out var cached))
+                return (true, cached);
+
+            // 不存在 → 计算
+            if (ProcessPoint(pt, out var newPt))
+            {
+                // 加入字典（多线程安全）
+                _ptMapping.TryAdd(pt, newPt);
+                return (true, newPt);
+            }
+
+            // ProcessPoint 失败 → 记录
+            Interlocked.Increment(ref _failTranPointCount);
+            _logObjs.Enqueue(new Point(pt));
+            return (false, Point3d.Unset);
+        }
+
 
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep baseBrep, Brep targetBrep, Vector3d projectionDirection, SelectionOptions options)
         {
@@ -79,27 +107,18 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
             _ModelTolerance = _doc?.ModelAbsoluteTolerance ?? RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
 
-
             //是否展示LogObj
             __ShowLogObj = options.ShowLogObj;
 
-
             _morph = new MyPointFieldMorph(pt =>
             {
-                var ok = ProcessPoint(pt, out var newPt);
-                if (!ok)
-                {
-                    _failTranPointCount++;
-                    _logObjs.Enqueue(new Point(pt));
-
-                }
-                return (ok, newPt);
+                return TryMapOrProcess(pt);
             },
             _ModelTolerance,
             options.PreserveStructure,
             options.QuickPreview
             );
-            _PreserveStructure = options.PreserveStructure;
+            //_PreserveStructure = options.PreserveStructure;
             _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
 
             _IsCopy = options.IsCopy;
@@ -114,21 +133,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             var curvesToAdd = new ConcurrentBag<Curve>();
             var brepsToAdd = new ConcurrentBag<Brep>();
 
-            var failObj = new ConcurrentBag<ObjRef>();
-
-            // 记录每个对象对应的群组信息
-            var objGroupMap = new Dictionary<Guid, int[]>();
-            foreach (var objRef in _objRefs)
-            {
-                var rhObj = objRef.Object();
-                if (rhObj != null)
-                {
-                    var groups = rhObj.Attributes.GetGroupList();
-                    if (groups != null && groups.Length > 0)
-                        objGroupMap[objRef.ObjectId] = groups;
-                }
-            }
-
+            var _failObj = new ConcurrentBag<ObjRef>();
 
             int curveSuccess = 0, curveFail = 0;
             int brepSuccess = 0, brepFail = 0;
@@ -136,6 +141,8 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             Parallel.ForEach(_objRefs, objRef =>
             {
                 var geom = objRef.Geometry();
+                geom = geom.Duplicate();
+                geom.EnsurePrivateCopy();
                 if (geom == null) return;
 
                 try
@@ -150,7 +157,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                         else
                         {
                             Interlocked.Increment(ref curveFail);
-                            failObj.Add(objRef);
+                            _failObj.Add(objRef);
                         }
                     }
                     else if (Mylib.GeometryUtils.ToBrepSafe(geom) is Brep brep)
@@ -169,7 +176,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                         else
                         {
                             Interlocked.Increment(ref brepFail);
-                            failObj.Add(objRef);
+                            _failObj.Add(objRef);
                         }
                     }
                     else
@@ -253,10 +260,14 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                 if (!_IsCopy)
                 {
                     //_doc.Objects.Delete()
-                    foreach (ObjRef obf in _objRefs)
+                    var failSet = new HashSet<ObjRef>(_failObj);
+
+                    foreach (var obf in _objRefs)
                     {
-                        _doc.Objects.Delete(obf, true);
+                        if (!failSet.Contains(obf))
+                            _doc.Objects.Delete(obf, true);
                     }
+
                 }
 
                 RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
@@ -264,7 +275,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                 RhinoApp.WriteLine($"ControlPoint Failed {_failTranPointCount}");
                 sw.Stop();
                 RhinoApp.WriteLine($"执行时间: {sw.ElapsedMilliseconds} ms");
-                foreach (var fo in failObj)
+                foreach (var fo in _failObj)
                 {
                     _doc.Objects.Select(fo.ObjectId);
                 }
@@ -309,7 +320,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             // 4️⃣ 计算最终方向
             Vector3d flowDir;
             Vector3d ptLocationOnBase = pt - fromPt; //判断初始点在基础曲面的上方还是下方
-            if (ptLocationOnBase.Length > _ModelTolerance) //长度大于容差
+            if (ptLocationOnBase.Length > 0.001) //长度大于容差
             {
                 bool isPositive = targetNormal * ptLocationOnBase >= 0;
                 if (_isFlowOnNormalVector)
@@ -338,8 +349,8 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         //基于点变换变换曲线
         private Result ProcessCurve(Curve curve, out Curve newCurve)
         {
-            curve = curve.DuplicateCurve();
-            var nc = curve as NurbsCurve ?? curve.ToNurbsCurve();
+            var curvedup = curve.DuplicateCurve();
+            var nc = curvedup as NurbsCurve ?? curvedup.ToNurbsCurve();
 
             if (_controlPointMagnification > 1)
                 nc = Mylib.GeometryUtils.DensifyNurbsCurve(nc, _controlPointMagnification);
@@ -353,12 +364,62 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
         private Result ProcessBrepTogether(Brep brep, out List<Brep> newBreps)
         {
-            brep = brep.DuplicateBrep();
             newBreps = new List<Brep>();
-            if (_morph.Morph(brep as GeometryBase))
-                newBreps.Add(brep);
-            return newBreps.Count > 0 ? Result.Success : Result.Failure;
+            if (brep == null || !brep.IsValid)
+                return Result.Failure;
+            var brepdup = brep.DuplicateBrep();
+
+            if (!_morph.Morph(brepdup))
+                return Result.Failure;
+
+            if (brepdup.IsValid)
+            {
+                newBreps.Add(brepdup);
+                return Result.Success;
+            }
+
+            ConcurrentBag<Brep> bag = new ConcurrentBag<Brep>();
+            var threadLocalBrep = new ThreadLocal<Brep>(() => brepdup.DuplicateBrep(), true);
+
+            try
+            {
+                Parallel.For(0, brepdup.Faces.Count, i =>
+                {
+                    Brep local = threadLocalBrep.Value;
+                    Brep single = local.Faces[i].DuplicateFace(false);
+                    if (single != null && single.IsValid)
+                    {
+                        single.Compact();
+                        bag.Add(single);
+                    }
+                    else
+                    {
+                        _logMessages.Enqueue($"Brep的单面无效");
+                        if (__ShowLogObj)
+                        {
+                            
+                            _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
+                        }
+                    }
+                });
+            }
+            finally
+            {
+                if (threadLocalBrep != null)
+                {
+                    foreach (var b in threadLocalBrep.Values)
+                    {
+                    }
+                    threadLocalBrep.Dispose();
+                }
+
+            }
+
+            newBreps = bag.ToList();
+            return newBreps.Count == brep.Faces.Count ? Result.Success : Result.Failure;
+
         }
+
 
 
         private Result ProcessBrepSplit(Brep brep, out List<Brep> newBreps)
@@ -366,27 +427,37 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             newBreps = new List<Brep>();
             if (brep == null || !brep.IsValid)
                 return Result.Failure;
-            brep = brep.DuplicateBrep();
+            var brepdup = brep.DuplicateBrep();
+            brepdup.EnsurePrivateCopy();
             var results = new ConcurrentBag<Brep>();
-            Parallel.ForEach(brep.Faces, face =>
+            Parallel.For(0, brepdup.Faces.Count, i =>
             {
                 try
                 {
-                    // 每个面单独作为小brep
-                    Brep singleBrep = face.DuplicateFace(false);
+                    Brep singleBrep = brepdup.Faces[i].DuplicateFace(false);
                     if (singleBrep != null && singleBrep.IsValid)
                     {
                         if (_morph.Morph(singleBrep as GeometryBase))
-                            results.Add(singleBrep);
+                            if (singleBrep.IsValid)
+                                results.Add(singleBrep);
+                            else
+                            {
+                                _logMessages.Enqueue($"Brep的单面无效");
+                                if (__ShowLogObj)
+                                {
+                                    _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
+                                }
+                            }
+
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logMessages.Enqueue($"[线程异常] 面索引 {face.FaceIndex}: {ex.Message}");
+                    _logMessages.Enqueue($"[线程异常] 面索引 {i}: {ex.Message}");
                 }
             });
             newBreps = results.ToList();
-            return newBreps.Count > 0 ? Result.Success : Result.Failure;
+            return newBreps.Count == brep.Faces.Count ? Result.Success : Result.Failure;
         }
     }
 }
