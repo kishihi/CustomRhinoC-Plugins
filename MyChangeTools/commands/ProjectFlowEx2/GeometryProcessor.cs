@@ -50,19 +50,16 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         private readonly bool _isFlowOnNormalVector;
         private readonly int _controlPointMagnification;
         private readonly double _ModelTolerance;
-        private readonly ConcurrentQueue<string> _logMessages = new ConcurrentQueue<string>(); // ✅ 全局日志队列
-        private readonly ConcurrentQueue<GeometryBase> _logObjs = new ConcurrentQueue<GeometryBase>(); // ✅ 全局临时对象队列
+        private readonly ConcurrentQueue<string> _logMessages = new ConcurrentQueue<string>(); // 全局日志队列
+        private readonly ConcurrentQueue<GeometryBase> _logObjs = new ConcurrentQueue<GeometryBase>(); // 全局临时对象队列
 
         // 构建 Morph 对象
         private readonly MyPointFieldMorph _morph;
-        //private readonly bool _PreserveStructure;
         private readonly bool _IsProcessBrepTogeTher;
 
         private readonly ConcurrentDictionary<Point3d, Point3d> _ptMapping =
     new ConcurrentDictionary<Point3d, Point3d>();
 
-
-        //private readonly ConcurrentBag<ObjRef>  _failObj = new ConcurrentBag<ObjRef>();
 
         private readonly bool _IsCopy;
 
@@ -75,19 +72,13 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
         private (bool ok, Point3d newPt) TryMapOrProcess(Point3d pt)
         {
-            // 如果已存在 → 直接返回
             if (_ptMapping.TryGetValue(pt, out var cached))
                 return (true, cached);
-
-            // 不存在 → 计算
             if (ProcessPoint(pt, out var newPt))
             {
-                // 加入字典（多线程安全）
                 _ptMapping.TryAdd(pt, newPt);
                 return (true, newPt);
             }
-
-            // ProcessPoint 失败 → 记录
             Interlocked.Increment(ref _failTranPointCount);
             _logObjs.Enqueue(new Point(pt));
             return (false, Point3d.Unset);
@@ -394,11 +385,21 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                     }
                     else
                     {
-                        _logMessages.Enqueue($"Brep的单面无效");
-                        if (__ShowLogObj)
+
+                        //尝试对失败的单面进行变形
+                        Brep singbrepdup = brep.Faces[i].DuplicateFace(false);
+                        if (_morph.Morph(singbrepdup) && singbrepdup.IsValid)
                         {
-                            
-                            _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
+                            bag.Add(singbrepdup);
+                        }
+                        else
+                        {
+                            _logMessages.Enqueue($"Brep的单面无效");
+                            if (__ShowLogObj)
+                            {
+
+                                _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
+                            }
                         }
                     }
                 });
@@ -416,7 +417,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             }
 
             newBreps = bag.ToList();
-            return newBreps.Count == brep.Faces.Count ? Result.Success : Result.Failure;
+            return newBreps.Count >0 ? Result.Success : Result.Failure;
 
         }
 
@@ -457,7 +458,7 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                 }
             });
             newBreps = results.ToList();
-            return newBreps.Count == brep.Faces.Count ? Result.Success : Result.Failure;
+            return newBreps.Count >0 ? Result.Success : Result.Failure;
         }
     }
 }
