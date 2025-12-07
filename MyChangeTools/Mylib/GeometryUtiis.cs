@@ -1,5 +1,8 @@
 ﻿using Rhino;
+using Rhino.Commands;
+using Rhino.DocObjects;
 using Rhino.Geometry;
+using Rhino.Input.Custom;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -173,7 +176,7 @@ namespace MyChangeTools.Mylib
             var result = new ConcurrentBag<Point3d>();
             var options = new ParallelOptions
             {
-                MaxDegreeOfParallelism = Math.Min(Environment.ProcessorCount, 8)
+                MaxDegreeOfParallelism = Math.Min(System.Environment.ProcessorCount, 8)
             };
 
             Parallel.For(0, u_count, options, i =>
@@ -419,5 +422,43 @@ namespace MyChangeTools.Mylib
             a2.Transform(rotation);
             return a2;
         }
+
+
+        public static Result SelectGeometries(
+    RhinoDoc doc,
+    string prompt,
+    ObjectType filter,
+    out ObjRef[] objRefs)
+        {
+            objRefs = null;
+
+            var go = new GetObject();
+            go.SetCommandPrompt(string.IsNullOrEmpty(prompt) ? "选择几何体" : prompt);
+
+            go.EnablePreSelect(true, true);
+
+            go.GroupSelect = true;
+
+            go.GeometryFilter = filter;
+
+            go.GetMultiple(1, 0);
+
+            if (go.CommandResult() != Result.Success)
+                return go.CommandResult();
+
+            objRefs = go.Objects().ToArray();
+
+            objRefs = objRefs
+                .Where(o => o != null && o.Object() != null)
+                .ToArray();
+
+            if (objRefs.Length == 0)
+                return Result.Failure;
+
+            doc.Objects.UnselectAll();
+
+            return Result.Success;
+        }
+
     }
 }

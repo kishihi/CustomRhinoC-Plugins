@@ -4,11 +4,9 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using Mesh = Rhino.Geometry.Mesh;
-namespace MyRhinoSelectTools.Commands.SelectAboveSurface
+namespace MyRhinoSelectTools.Commands.SelectAboveSurface2
 {
 
     internal class SurfaceCompute
@@ -50,22 +48,23 @@ namespace MyRhinoSelectTools.Commands.SelectAboveSurface
                 if (geom == null)
                     return;
 
-
                 //pts
                 int aboveCount = 0;
                 int belowCount = 0;
                 int onCount = 0;
+                int sampleNumber = 5;
+
+
+                foreach (var samplept in PopulateGeom.PopulateGeom3D(geom, sampleNumber))
 
                 {
-                    Point3d centroid = CustomQuickClass.QuickGeometry.GetCentroidFast(geom);
+                    // _textDots.Add((samplept, $""));
+                    baseBrep.ClosestPoint(samplept, out Point3d pInBrepCloest, out ComponentIndex ci, out double s, out double t, double.MaxValue, out Vector3d normal);
 
-
-                    TryGetStableClosestPoint(baseBrep, centroid, out Point3d pInBrepCloest, out Vector3d normal);
-
-                    if (centroid == Point3d.Unset || pInBrepCloest == Point3d.Unset)
+                    if (samplept == Point3d.Unset || pInBrepCloest == Point3d.Unset)
                         return;
 
-                    Vector3d vec = centroid - pInBrepCloest;
+                    Vector3d vec = samplept - pInBrepCloest;
                     if (vec.IsTiny())
                     {
                         _onObjids.Add(objRef.ObjectId);
@@ -76,20 +75,21 @@ namespace MyRhinoSelectTools.Commands.SelectAboveSurface
                     normal.Unitize();
 
                     double dot = vec * normal;
-                    if (dot > tol)
+                    if (dot > 0)
                         aboveCount++;
-                    else if (dot < -tol)
-                        belowCount++;
                     else
-                        onCount++;
+                        belowCount++;
                 }
 
-                if (aboveCount + onCount > belowCount)
+                int[] values = { aboveCount, belowCount, onCount };
+                int maxCount = values.Max();
+                if (aboveCount == maxCount || aboveCount > belowCount) 
                     _abovedObjIds.Add(objRef.ObjectId);
-                else if (belowCount + onCount > aboveCount)
+                else if (belowCount == maxCount || belowCount > aboveCount) 
                     _belowObjIds.Add(objRef.ObjectId);
-                else
+                else if (aboveCount == belowCount && aboveCount == 0 && onCount > 0) 
                     _onObjids.Add(objRef.ObjectId);
+
 
 
             });
@@ -102,47 +102,5 @@ namespace MyRhinoSelectTools.Commands.SelectAboveSurface
 
             return Result.Success;
         }
-
-
-
-        /// <summary>
-        /// 获取 Brep 上稳定的最近点与法向量。
-        /// 自动避开边缘和角点，保证法向量来自单一面。
-        /// </summary>
-        /// <param name="brep">要查询的 Brep</param>
-        /// <param name="testPt">测试点</param>
-        /// <param name="ptOnFace">输出：Brep 面上的点</param>
-        /// <param name="normal">输出：法向量</param>
-        /// <param name="tolerance">可选公差</param>
-        /// <returns>是否成功获取稳定结果</returns>
-        public static bool TryGetStableClosestPoint(Brep brep, Point3d testPt, out Point3d ptOnFace, out Vector3d normal, double tolerance = 1e-6)
-        {
-            ptOnFace = Point3d.Unset;
-            normal = Vector3d.Unset;
-
-            if (brep == null)
-                return false;
-
-            // 获取最近点
-            if (!brep.ClosestPoint(testPt,
-                out Point3d pClosest,
-                out ComponentIndex ci,
-                out double s,
-                out double t,
-                double.MaxValue,
-                out Vector3d n))
-            {
-                return false;
-            }
-
-            // 默认输出
-            ptOnFace = pClosest;
-            normal = n;
-
-
-
-            return true;
-        }
-
     }
 }

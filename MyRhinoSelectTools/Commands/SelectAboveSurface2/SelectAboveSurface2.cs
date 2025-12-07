@@ -8,13 +8,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
-namespace MyRhinoSelectTools.Commands.SelectAboveSurface
+namespace MyRhinoSelectTools.Commands.SelectAboveSurface2
 {
-    public class SelectAboveSurface : Command
+    public class SelectAboveSurface2 : Command
     {
-        public override string EnglishName => "SelectAboveSurface";
+        public override string EnglishName => "SelectAboveSurface2";
 
         //}
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
@@ -60,10 +59,16 @@ namespace MyRhinoSelectTools.Commands.SelectAboveSurface
                     else
                     {
                         // 把所有对象都包装成 ObjRef 并生成数组
-                        objRefs = doc.Objects
-                            .Where(o => o != null)
-                            .Select(o => new ObjRef(o))
-                            .ToArray();
+                        //objRefs = doc.Objects
+                        //    .Where(o => o != null)
+                        //    .Select(o => new ObjRef(o))
+                        //    .ToArray();
+                        objRefs = doc.Objects.GetObjectList(new ObjectEnumeratorSettings { ActiveObjects = true })
+    .Select(o => doc.Objects.Find(o.Id))
+    .Where(o => o != null)
+    .Select(o => new ObjRef(o))
+    .ToArray();
+
 
                         RhinoApp.WriteLine($"未手动选择，自动选择全部对象，共 {objRefs.Length} 个。");
                     }
@@ -73,18 +78,20 @@ namespace MyRhinoSelectTools.Commands.SelectAboveSurface
             // 4. 遍历对象
             var sc = SurfaceCompute.ComputeDirection(
                 doc, baseBrepRef, objRefs, out ConcurrentBag<Guid> abovedObjIds, out ConcurrentBag<Guid> belowObjIds, out ConcurrentBag<Guid> onObjids, out ConcurrentBag<(Point3d pt, string text)> textDots);
-            
-            if(sc!=Result.Success)
+
+            if (sc != Result.Success)
             {
                 RhinoApp.WriteLine("计算方向失败");
                 return sc;
             }
 
+            #if DEBUG
             // 在主线程中添加 TextDot
-            //foreach (var (pt, text) in textDots)
-            //{
-            //    CustomQuickClass.QuickGeometry.AddTextDotInCenter(new Rhino.Geometry.Point(pt), text);
-            //}
+            foreach (var (pt, text) in textDots)
+            {
+               CustomQuickClass.QuickGeometry.AddTextDotInCenter(new Rhino.Geometry.Point(pt), text);
+            }
+            #endif
 
             // 5. 根据用户选择选中对象
             List<Guid> resultObjIds = (direction == 1 ? abovedObjIds : (direction == -1 ? belowObjIds : onObjids)).ToList();
