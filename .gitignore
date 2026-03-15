@@ -12,11 +12,11 @@
 # ==========================================
 # 编译输出与中间文件
 # ==========================================
-[Bb]in/[Dd]ebug/
+# [Bb]in/[Dd]ebug/
 [Oo]bj/
 [Ll]og/
 [Tt]emp/
-**/[Dd]ebug/
+# **/[Dd]ebug/
 *[Tt]est*/
 doc/
 
@@ -45,7 +45,7 @@ doc/
 RhinoPlugin.rhp/
 RhinoPlugin.rhi/
 RhinoPluginInstaller/
-RhinoPlugin*/bin/
+# RhinoPlugin*/bin/
 RhinoPlugin*/obj/
 
 # ==========================================
