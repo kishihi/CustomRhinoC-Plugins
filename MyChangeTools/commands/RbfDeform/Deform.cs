@@ -343,7 +343,7 @@ namespace MyChangeTools.commands.RbfDeform
         private readonly List<Vector3d> _deltas = new List<Vector3d>();
         private readonly RBFDeformer _rbfDeformer;
 
-        public Deform(Curve[] baseCurves, Curve[] targetCurves, Curve[] limitedCurves, SelectionOptions selectionOptions)
+        public Deform(Curve[] baseCurves, Curve[] targetCurves, Rhino.DocObjects.ObjRef[] limitedObjs, SelectionOptions selectionOptions)
         {
             // _rbfDeformer
             if (baseCurves.Length == 0 || baseCurves.Length != targetCurves.Length)
@@ -370,24 +370,78 @@ namespace MyChangeTools.commands.RbfDeform
                     Rhino.RhinoApp.WriteLine($"曲线对{i + 1} 没有采样到点");
             }
 
-            for (int i = 0; i < limitedCurves.Length; i++)
+            // limitedObjs 可以是曲线,网格,点，分别处理
+
+            if (limitedObjs != null && limitedObjs.Length > 0)
             {
-                var limitedCurve = limitedCurves[i];
-                int count = (int)Math.Ceiling(limitedCurve.GetLength() + 1);
-                var ok =
-                    AddDeltasFromLimitedCurve(limitedCurve, count);
-                if (ok)
+                // 保存点类型的受限对象，等处理完所有对象后再统一添加到控制点列表中
+                var limitedPoints = new List<Point3d>();
+                // 如果是网格，使用网格顶点作为受限点；如果是曲线，按照曲线长度等距采样；如果是点，直接使用点位置
+                for (int i = 0; i < limitedObjs.Length; i++)
                 {
-                    Rhino.RhinoApp.WriteLine($"limited 曲线{i + 1} 成功采样了{count}个点");
-                }
-                else
-                {
-                    Rhino.RhinoApp.WriteLine($"limited 曲线 {i + 1} 没有采样到点");
-                }
-                bools.Add(ok);
+                    var obj = limitedObjs[i].Geometry();
+                    if (obj.ObjectType == Rhino.DocObjects.ObjectType.Mesh)
+                    {
+                        var limitedmesh = obj as Mesh;
+                        var ok = AddDeltasFromLimitedMesh(limitedmesh, out int successCount);
+                        if (ok)
+                        {
+                            Rhino.RhinoApp.WriteLine($"limited 网格 {i + 1} 成功采样了 {successCount} 个点");
+                        }
+                        else
+                        {
+                            Rhino.RhinoApp.WriteLine($"limited 网格 {i + 1} 没有采样到点");
+                        }
+                        bools.Add(ok);
+                    }
+                    else if (obj.ObjectType == Rhino.DocObjects.ObjectType.Curve)
+                    {
+                        var limitedCurve = obj as Curve;
+                        int count = (int)Math.Ceiling(limitedCurve.GetLength()/selectionOptions.SampleDistance + 1);
+                        var ok =
+                            AddDeltasFromLimitedCurve(limitedCurve, count);
+                        if (ok)
+                        {
+                            Rhino.RhinoApp.WriteLine($"limited 曲线{i + 1} 成功采样了{count}个点");
+                        }
+                        else
+                        {
+                            Rhino.RhinoApp.WriteLine($"limited 曲线 {i + 1} 没有采样到点");
+                        }
+                        bools.Add(ok);
+                    }
+                    else if (obj.ObjectType == Rhino.DocObjects.ObjectType.Point)
+                    {
+                        // 点对象转为点位置Point3d
+                        limitedPoints.Add(((Rhino.Geometry.Point)obj).Location);
 
+                    }
+
+                    else
+                    {
+                        Rhino.RhinoApp.WriteLine($"limited 对象 {i + 1} 不是曲线,网格,点，无法采样");
+                    }
+                }
+
+                // 如果有点类型的受限对象，使用这些点作为受限点
+                if (limitedPoints.Count > 0)
+                {
+                    var okp = AddDeltasFromLimitedPoints(limitedPoints, out int successCountPoints);
+
+                    if (okp)
+                    {
+                        Rhino.RhinoApp.WriteLine($"limited 点集成功采样了 {successCountPoints} 个点");
+                    }
+                    else
+                    {
+                        Rhino.RhinoApp.WriteLine($"limited 点集没有采样到点");
+                    }
+
+                    bools.Add(okp);
+                }
             }
-
+            
+            // 如果所有曲线对和受限对象都成功采样到点，则构造 RBFDeformer
             if (bools.All(t => t))
             {
                 if (!selectionOptions.LinearSystem)
@@ -418,7 +472,7 @@ namespace MyChangeTools.commands.RbfDeform
             else
             {
                 _rbfDeformer = null;
-                RhinoApp.WriteLine("有曲线没有成功采样到点，无法构造 RBFDeformer, 请检查输入曲线和采样参数");
+                RhinoApp.WriteLine("有对象没有成功采样到点，无法构造 RBFDeformer, 请检查输入曲线和采样参数");
                 throw new AggregateException("_rbfDeformer null !");
             }
 
@@ -451,6 +505,7 @@ namespace MyChangeTools.commands.RbfDeform
             return false;
         }
 
+
         bool AddDeltasFromLimitedCurve(Curve limitedCurve, int count)
         {
             NurbsCurve nc = limitedCurve.ToNurbsCurve();
@@ -464,13 +519,50 @@ namespace MyChangeTools.commands.RbfDeform
             return samplePoints.Count() > 0;
         }
 
+        //use mesh vertex as limited point
+        bool AddDeltasFromLimitedMesh(Mesh limitedMesh, out int successCount)
+        {
+            successCount = 0;
+            if (limitedMesh == null || limitedMesh.Vertices.Count == 0 || !limitedMesh.IsValid)
+            {
+                return false;
+            }
+            else
+            {
+                var srcPoints = limitedMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
+                var zeroDeltas = limitedMesh.Vertices.Select(v => Vector3d.Zero);
+                _srcPoints.AddRange(srcPoints);
+                _deltas.AddRange(zeroDeltas);
+                successCount = limitedMesh.Vertices.Count;
+            }
+            return successCount > 0;
+
+        }
+
+        //use points as limited point
+        bool AddDeltasFromLimitedPoints(IEnumerable<Point3d> points, out int successCount)
+        {
+            successCount = 0;
+            if (points == null || !points.Any())
+            {
+                return false;
+            }
+            else
+            {
+                var zeroDeltas = points.Select(p => Vector3d.Zero);
+                _srcPoints.AddRange(points);
+                _deltas.AddRange(zeroDeltas);
+                successCount = points.Count();
+            }
+            return successCount > 0;
+        }
+
         bool AddDeltasFromSamplePointsByClosestPoint(Curve baseCurve, Curve targetCurve, int count, out int successCount)
         {
             successCount = 0;
             NurbsCurve nurbsBaseCurve = baseCurve.ToNurbsCurve();
             nurbsBaseCurve.Domain = new Interval(0, count);
-            List<Point3d> srcPoints = Enumerable.Range(0, count + 1).Select(t => nurbsBaseCurve.PointAt(t)).ToList();
-
+            var srcPoints = Enumerable.Range(0, count + 1).Select(t => nurbsBaseCurve.PointAt(t));
             var successSrcPoints = new List<Point3d>();
             var successDeltas = new List<Vector3d>();
             foreach (Point3d srcpoint in srcPoints)

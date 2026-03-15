@@ -53,7 +53,7 @@ namespace MyChangeTools.commands.RbfDeform
             ObjRef[] objRefs,
             Curve[] baseCurves,
             Curve[] targetCurves,
-            Curve[] limitedCurve,
+            ObjRef[] limitedObjRfs,
             List<Vector3d> MoveVectors,
             SelectionOptions selectionOptions)
         {
@@ -61,7 +61,7 @@ namespace MyChangeTools.commands.RbfDeform
             _objRefs = objRefs;
             _moveVectors = MoveVectors;
             _Tolerance = selectionOptions.Tolerance;
-            _deform = new Deform(baseCurves, targetCurves, limitedCurve, selectionOptions);
+            _deform = new Deform(baseCurves, targetCurves, limitedObjRfs, selectionOptions);
 
             // 预先单位化向量（避免百万次Unitize）
             for (int i = 0; i < _moveVectors.Count; i++)

@@ -12,8 +12,8 @@
 	<PropertyGroup>
 		<Version>1.0</Version>
 		<Title>MyRhinoSelectTools</Title>
-		<Company>MyRhinoSelectTools Authors</Company>
-		<Description>Description of MyRhinoSelectTools</Description>
+		<Company>Whysiki</Company>
+		<Description>RhinoSelectTools</Description>
 	</PropertyGroup>
 
 	<ItemGroup>

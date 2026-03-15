@@ -14,7 +14,7 @@
 
 	<PropertyGroup>
 		
-		<Version>1.4.1</Version>
+		<Version>1.4.3</Version>
 		<AssemblyVersion>$(Version)</AssemblyVersion>
 		<Title>MyChangeTools</Title>
 		<Authors>Whysiki</Authors>
@@ -60,6 +60,10 @@
 			<Private>false</Private>
 		</Reference>
 		 
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="commands\Mvc2DOutlineReplace\" />
 	</ItemGroup>
 
 	<PropertyGroup>

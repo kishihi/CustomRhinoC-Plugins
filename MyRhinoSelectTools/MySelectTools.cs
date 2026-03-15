@@ -11,15 +11,15 @@ namespace MyRhinoSelectTools
     /// attributes in AssemblyInfo.cs (you might need to click "Project" ->
     /// "Show All Files" to see it in the "Solution Explorer" window).</para>
     ///</summary>
-    public class WhysikiSelectTools : Rhino.PlugIns.PlugIn
+    public class MySelectTools : Rhino.PlugIns.PlugIn
     {
-        public WhysikiSelectTools()
+        public MySelectTools()
         {
             Instance = this;
         }
 
         ///<summary>Gets the only instance of the whysikiSelectTools plug-in.</summary>
-        public static WhysikiSelectTools Instance { get; private set; }
+        public static MySelectTools Instance { get; private set; }
 
         // You can override methods here to change the plug-in behavior on
         // loading and shut down, add options pages to the Rhino _Option command

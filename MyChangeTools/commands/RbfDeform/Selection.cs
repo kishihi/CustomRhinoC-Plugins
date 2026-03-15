@@ -105,11 +105,7 @@ namespace MyChangeTools.commands.RbfDeform
         [Option("Tolerance")]
         public double Tolerance { get; set; } = 0.01;
 
-
     }
-
-
-
     public class Selection
     {
 
@@ -146,8 +142,11 @@ namespace MyChangeTools.commands.RbfDeform
             objRefs = objRefs
                 .Where(o => o != null && o.Object() != null && o.Object().IsValid)
                 .ToArray();
-
-            RhinoApp.WriteLine($"You Selected {objRefs.Length} {filter.ToString()}");
+            
+            var typeCounts = objRefs.GroupBy(o => o.Object().ObjectType).Select(g => new { Type = g.Key, Count = g.Count() });
+            foreach (var typeCount in typeCounts)            {
+                RhinoApp.WriteLine($"You Selected {typeCount.Count} {typeCount.Type.ToString()}");
+            }
 
             if (objRefs.Length == 0)
                 return Result.Failure;

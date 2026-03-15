@@ -126,6 +126,8 @@ namespace MyChangeTools.commands.ProjectFlowEx2
 
             go.EnablePreSelect(true, true);
 
+            go.SubObjectSelect = false;
+
             go.GroupSelect = true;
 
             go.GeometryFilter = filter;
@@ -140,6 +142,12 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             objRefs = objRefs
                 .Where(o => o != null && o.Object() != null)
                 .ToArray();
+
+
+            var typeCounts = objRefs.GroupBy(o => o.Object().ObjectType).Select(g => new { Type = g.Key, Count = g.Count() });
+            foreach (var typeCount in typeCounts)            {
+                RhinoApp.WriteLine($"You Selected {typeCount.Count} {typeCount.Type.ToString()}");
+            }
 
             if (objRefs.Length == 0)
                 return Result.Failure;
