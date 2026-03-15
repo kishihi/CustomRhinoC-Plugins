@@ -1,6 +1,6 @@
 ## Some Custom Rhino C# Plugins for Rhino 7+
 
-编译后的rhp位于 xx\bin\Release\netxx\ 
+编译后的rhp位于 xx\bin
 
 直接拖入Rhino使用
 
