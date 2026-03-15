@@ -30,11 +30,11 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             try
             {
                 var (ok, newPt) = _processPointFunc(point);
-                return ok ? newPt : point;
+                return ok ? newPt : Point3d.Unset; //如果变换失败，返回Unset
             }
             catch
             {
-                return point;
+                return Point3d.Unset; //如果变换过程中发生异常，也返回Unset
             }
         }
     }
@@ -70,15 +70,16 @@ namespace MyChangeTools.commands.ProjectFlowEx2
         private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
 
 
+        // 尝试从缓存获取变换结果，如果没有则计算并缓存结果
         private (bool ok, Point3d newPt) TryMapOrProcess(Point3d pt)
         {
             if (_ptMapping.TryGetValue(pt, out var cached))
                 return (true, cached);
             if (ProcessPoint(pt, out var newPt))
             {
-                _ptMapping.TryAdd(pt, newPt);
-                return (true, newPt);
-            }
+                if (_ptMapping.TryAdd(pt, newPt))
+                    return (true, newPt);
+            } 
             Interlocked.Increment(ref _failTranPointCount);
             _logObjs.Enqueue(new Point(pt));
             return (false, Point3d.Unset);
@@ -109,176 +110,212 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             options.PreserveStructure,
             options.QuickPreview
             );
-            //_PreserveStructure = options.PreserveStructure;
             _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
 
             _IsCopy = options.IsCopy;
 
 
         }
-
         public Result Process()
         {
             var sw = Stopwatch.StartNew();
-            bool success = false;
-            var curvesToAdd = new ConcurrentBag<Curve>();
-            var brepsToAdd = new ConcurrentBag<Brep>();
 
-            var _failObj = new ConcurrentBag<ObjRef>();
+            ProcessBrepHandler processBrep;
+            if (_IsProcessBrepTogeTher)
+                processBrep = ProcessBrepTogether;
+            else
+                processBrep = ProcessBrepSplit;
 
-            int curveSuccess = 0, curveFail = 0;
-            int brepSuccess = 0, brepFail = 0;
+            List<GeometryBase> successProcessObjs = new List<GeometryBase>();
+            List<ObjRef> failProcessObjRefs = new List<ObjRef>();
 
-            Parallel.ForEach(_objRefs, objRef =>
-            {
-                var geom = objRef.Geometry();
-                geom = geom.Duplicate();
-                geom.EnsurePrivateCopy();
-                if (geom == null) return;
+            object mergeLock = new object();
 
-                try
+            int successCount = 0;
+            int failCount = 0;
+
+            Parallel.ForEach(
+                _objRefs,
+
+                // 每线程初始化
+                () => new List<GeometryBase>(8),
+
+                // 并行处理
+                (objRef, loopState, localList) =>
                 {
-                    if (geom is Curve curve)
+                    try
                     {
-                        if (ProcessCurve(curve, out var newCurve) == Result.Success)
-                        {
-                            curvesToAdd.Add(newCurve);
-                            Interlocked.Increment(ref curveSuccess);
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref curveFail);
-                            _failObj.Add(objRef);
-                        }
-                    }
-                    else if (Mylib.GeometryUtils.ToBrepSafe(geom) is Brep brep)
-                    {
-                        ProcessBrepHandler ProcessBrep;
-                        if (_IsProcessBrepTogeTher)
-                            ProcessBrep = ProcessBrepTogether; // 方法组 -> 委托转换
-                        else
-                            ProcessBrep = ProcessBrepSplit;
-                        if (ProcessBrep(brep, out var newBreps) == Result.Success)
-                        {
-                            foreach (var nb in newBreps)
-                                brepsToAdd.Add(nb);
-                            Interlocked.Increment(ref brepSuccess);
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref brepFail);
-                            _failObj.Add(objRef);
-                        }
-                    }
-                    else
-                    {
-                        _logMessages.Enqueue($"不支持的几何类型: {geom.ObjectType}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logMessages.Enqueue($"对象处理出错: {ex.Message}");
-                }
-            });
+                        GeometryBase geom = objRef.Geometry();
+                        if (geom == null)
+                            return localList;
 
-            // --- 主线程安全区 ---
+                        geom = geom.Duplicate();
+
+                        Curve curve = geom as Curve;
+                        if (curve != null)
+                        {
+                            Curve newCurve;
+                            if (ProcessCurve(curve, out newCurve) == Result.Success)
+                            {
+                                localList.Add(newCurve);
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                Interlocked.Increment(ref failCount);
+                            }
+
+                            return localList;
+                        }
+
+                        Brep brep = geom as Brep;
+                        if (brep != null)
+                        {
+                            List<Brep> newBreps;
+                            if (processBrep(brep, out newBreps) == Result.Success)
+                            {
+                                if (newBreps != null)
+                                    localList.AddRange(newBreps);
+
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                Interlocked.Increment(ref failCount);
+                            }
+
+                            return localList;
+                        }
+
+                        // 其他类型直接morph尝试变换
+                        //subd ,mesh等其他类型的对象也可以尝试变换，如果变换失败则记录日志并保留对象
+                        if (_morph.Morph(geom))
+                        {
+                            localList.Add(geom);
+                            Interlocked.Increment(ref successCount);
+                        }
+                        else
+                        {
+                            lock (mergeLock) failProcessObjRefs.Add(objRef);
+                            Interlocked.Increment(ref failCount);
+                        }
+
+                    }
+                    catch (Exception ex)
+                    {
+                        _logMessages.Enqueue("对象处理出错: " + ex.Message);
+                    }
+
+                    return localList;
+                },
+
+                // 合并线程结果
+                localList =>
+                {
+                    lock (mergeLock)
+                        successProcessObjs.AddRange(localList);
+                });
+
+            // ================= UI线程 =================
+
             RhinoApp.InvokeOnUiThread((Action)(() =>
             {
-                List<Guid> newids = new List<Guid>();
+                List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
+                List<Brep> breps = new List<Brep>();
 
-                foreach (var c in curvesToAdd)
+                foreach (GeometryBase g in successProcessObjs)
                 {
-                    var id = _doc.Objects.AddCurve(c);
-                    newids.Add(id);
+                    Brep b = g as Brep;
+
+                    if (b != null)
+                    {
+                        breps.Add(b);
+                        continue;
+                    }
+                    // 其他类型直接添加到文档
+
+                    Guid id = _doc.Objects.Add(g);
+
+                    if (id != Guid.Empty)
+                        newIds.Add(id);
                 }
 
-
-                if (!brepsToAdd.IsEmpty)
+                // Brep join
+                if (breps.Count > 0)
                 {
-                    var joinedBreps = Brep.JoinBreps(brepsToAdd.ToList(), _doc.ModelAbsoluteTolerance);
-                    if (joinedBreps != null)
-                    {
-                        foreach (var jb in joinedBreps)
-                        {
-                            var id = _doc.Objects.AddBrep(jb);
-                            newids.Add(id);
-                        }
-                    }
+                    Brep[] joined = null;
+
+                    if (breps.Count > 1)
+                        joined = Brep.JoinBreps(breps, _doc.ModelAbsoluteTolerance);
+
+                    IEnumerable<Brep> finalBreps;
+
+                    if (joined != null)
+                        finalBreps = joined;
                     else
+                        finalBreps = breps;
+
+                    foreach (Brep b in finalBreps)
                     {
-                        foreach (var b in brepsToAdd)
-                        {
-                            var id = _doc.Objects.AddBrep(b);
-                            newids.Add(id);
-                        }
+                        Guid id = _doc.Objects.AddBrep(b);
+
+                        if (id != Guid.Empty)
+                            newIds.Add(id);
                     }
                 }
 
+                // 选中新对象
+                foreach (Guid id in newIds)
+                    _doc.Objects.Select(id);
 
-                newids.ForEach(id => _doc.Objects.Select(id));
+                // 删除旧对象
+                if (!_IsCopy)
+                {
+                    HashSet<Guid> failSet = new HashSet<Guid>();
 
+                    foreach (ObjRef fo in failProcessObjRefs)
+                        failSet.Add(fo.ObjectId);
 
+                    foreach (ObjRef ob in _objRefs)
+                    {
+                        // 失败的对象不删除，保留在场景中以供用户查看
+                        if (!failSet.Contains(ob.ObjectId))
+                            _doc.Objects.Delete(ob.ObjectId, true);
+                    }
+                }
 
-                _doc.Views.Redraw();
+                // log
 
                 while (_logMessages.TryDequeue(out string msg))
                     RhinoApp.WriteLine(msg);
 
-                while (_logObjs.TryDequeue(out GeometryBase g))
+                // if showlogobj
+                if (__ShowLogObj)
                 {
-
-                    if (__ShowLogObj)
-                    {
-                        var addMap = new Dictionary<Type, Func<object, Guid>>
-                            {
-                                { typeof(Curve), o => _doc.Objects.AddCurve((Curve)o) },
-                                { typeof(Brep),  o => _doc.Objects.AddBrep((Brep)o) },
-                                { typeof(Mesh),  o => _doc.Objects.AddMesh((Mesh)o) },
-                                { typeof(Point), o => _doc.Objects.AddPoint(((Point)o).Location) },
-                                { typeof(SubD),  o => _doc.Objects.AddSubD((SubD)o) }
-                            };
-
-                        Guid id = addMap.TryGetValue(g.GetType(), out var addFunc)
-                            ? addFunc(g)
-                            : Guid.Empty;
-                        if (id == Guid.Empty)
-                            RhinoApp.WriteLine($"未知几何类型: {g.ObjectType}");
-                        else
-                            _doc.Objects.Select(id);
+                    RhinoApp.WriteLine("LogObjCount: " + _logObjs.Count);
+                    while (_logObjs.TryDequeue(out GeometryBase obj)){
+                        Guid id = _doc.Objects.Add(obj);
                     }
                 }
 
-                if (!_IsCopy)
-                {
-                    //_doc.Objects.Delete()
-                    var failSet = new HashSet<ObjRef>(_failObj);
 
-                    foreach (var obf in _objRefs)
-                    {
-                        if (!failSet.Contains(obf))
-                            _doc.Objects.Delete(obf, true);
-                    }
+                _doc.Views.Redraw();
 
-                }
+                RhinoApp.WriteLine("成功: " + successCount);
+                RhinoApp.WriteLine("失败: " + failCount);
+                RhinoApp.WriteLine("ControlPoint Failed " + _failTranPointCount);
 
-                RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
-                RhinoApp.WriteLine($"Brep  成功: {brepSuccess}, 失败: {brepFail}");
-                RhinoApp.WriteLine($"ControlPoint Failed {_failTranPointCount}");
                 sw.Stop();
-                RhinoApp.WriteLine($"执行时间: {sw.ElapsedMilliseconds} ms");
-                foreach (var fo in _failObj)
-                {
-                    _doc.Objects.Select(fo.ObjectId);
-                }
+                RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
 
+                foreach (ObjRef fo in failProcessObjRefs)
+                    _doc.Objects.Select(fo.ObjectId);
             }));
 
-            success = curveSuccess + brepSuccess > 0;
-            //sw.Stop();
-
-            return success ? Result.Success : Result.Failure;
+            return Result.Success;
         }
-
 
         // 基函数: 点变化
         private bool ProcessPoint(Point3d pt, out Point3d newPt)
@@ -358,87 +395,35 @@ namespace MyChangeTools.commands.ProjectFlowEx2
             newBreps = new List<Brep>();
             if (brep == null || !brep.IsValid)
                 return Result.Failure;
-            var brepdup = brep.DuplicateBrep();
-
-            if (!_morph.Morph(brepdup))
+            brep.Standardize();
+            brep.Compact();
+            if (!_morph.Morph(brep))
                 return Result.Failure;
-
-            if (brepdup.IsValid)
+            if (brep.IsValid)
             {
-                newBreps.Add(brepdup);
+                newBreps.Add(brep);
                 return Result.Success;
             }
-
-            ConcurrentBag<Brep> bag = new ConcurrentBag<Brep>();
-            var threadLocalBrep = new ThreadLocal<Brep>(() => brepdup.DuplicateBrep(), true);
-
-            try
-            {
-                Parallel.For(0, brepdup.Faces.Count, i =>
-                {
-                    Brep local = threadLocalBrep.Value;
-                    Brep single = local.Faces[i].DuplicateFace(false);
-                    if (single != null && single.IsValid)
-                    {
-                        single.Compact();
-                        bag.Add(single);
-                    }
-                    else
-                    {
-
-                        //尝试对失败的单面进行变形
-                        Brep singbrepdup = brep.Faces[i].DuplicateFace(false);
-                        if (_morph.Morph(singbrepdup) && singbrepdup.IsValid)
-                        {
-                            bag.Add(singbrepdup);
-                        }
-                        else
-                        {
-                            _logMessages.Enqueue($"Brep的单面无效");
-                            if (__ShowLogObj)
-                            {
-
-                                _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
-                            }
-                        }
-                    }
-                });
-            }
-            finally
-            {
-                if (threadLocalBrep != null)
-                {
-                    foreach (var b in threadLocalBrep.Values)
-                    {
-                    }
-                    threadLocalBrep.Dispose();
-                }
-
-            }
-
-            newBreps = bag.ToList();
-            return newBreps.Count >0 ? Result.Success : Result.Failure;
+            return Result.Failure;
 
         }
-
-
 
         private Result ProcessBrepSplit(Brep brep, out List<Brep> newBreps)
         {
             newBreps = new List<Brep>();
             if (brep == null || !brep.IsValid)
                 return Result.Failure;
-            var brepdup = brep.DuplicateBrep();
-            brepdup.EnsurePrivateCopy();
             var results = new ConcurrentBag<Brep>();
-            Parallel.For(0, brepdup.Faces.Count, i =>
+            Parallel.For(0, brep.Faces.Count, i =>
             {
                 try
                 {
-                    Brep singleBrep = brepdup.Faces[i].DuplicateFace(false);
+                    Brep singleBrep = brep.Faces[i].DuplicateFace(false);
+                    singleBrep.Standardize();
+                    singleBrep.Compact();
                     if (singleBrep != null && singleBrep.IsValid)
                     {
-                        if (_morph.Morph(singleBrep as GeometryBase))
+                        if (_morph.Morph(singleBrep))
                             if (singleBrep.IsValid)
                                 results.Add(singleBrep);
                             else
@@ -449,7 +434,6 @@ namespace MyChangeTools.commands.ProjectFlowEx2
                                     _logObjs.Enqueue(brep.Faces[i].DuplicateFace(false));
                                 }
                             }
-
                     }
                 }
                 catch (Exception ex)

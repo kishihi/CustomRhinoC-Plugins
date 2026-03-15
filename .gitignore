@@ -26,7 +26,6 @@ doc/
 *.obj
 *.pdb
 *.exe
-*.dll
 *.cache
 *.ilk
 *.iobj
@@ -41,15 +40,6 @@ doc/
 *.tli
 *.tlh
 
-# ==========================================
-# Rhino 插件特有（如插件打包输出等）
-# ==========================================
-# 若你希望忽略打包后的 .rhp/.rhi，可取消注释以下行：
-# *.rhp
-# *.rhp.dll
-# *.rhi
-# *.rhp.rhp
-# *.rhp.pdb
 
 # 插件构建临时目录（Rhino SDK 自动生成）
 RhinoPlugin.rhp/
@@ -110,3 +100,8 @@ Thumbs.db
 /MyChangeTools/ToList.md
 /MyChangeTools/PostBuildEvent.txt
 /Learn
+/MyChangeTools/commands/AttemptRepairInVaild
+/key.txt
+/MyRhinoSelectTools/Properties
+/MyRhinoSelectTools/.vs
+/MyRhinoSelectTools/.vscode

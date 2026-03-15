@@ -7,7 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace MyChangeTools.commands.ProjectAlongView
+namespace MyChangeTools.commands.ProjectAlongViewZ
 {
 
     internal class SelectionOptions
@@ -96,7 +96,7 @@ namespace MyChangeTools.commands.ProjectAlongView
     }
 
 
-    public class ProjectAlongView : Command
+    public class ProjectAlongViewZ : Command
     {
         public override string EnglishName => "ProjectAlongViewZ";
 
