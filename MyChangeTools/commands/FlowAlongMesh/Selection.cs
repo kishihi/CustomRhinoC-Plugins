@@ -93,6 +93,21 @@ namespace MyChangeTools.commands.FlowAlongMesh
             [Option("Tolerance")]
             public double Tolerance { get; set; } = 0.01;
 
+            [Option("UseMyGeomMorph")]
+            public bool UseCustomMorph { get; set; } = false;
+
+            [Option("MyGeomMorphShrinkSurfaceToEdge")]
+            public bool ShrinkSurfaceToEdge { get; set; } = true;
+
+            [Option("MyGeomMorphRebuildFU")]
+            public int RebuildFaceUCount { get; set; } = 0;
+
+            [Option("MyGeomMorphRebuildFV")]
+            public int RebuildFaceVCount { get; set; } = 0;
+
+            [Option("MyGeomMorphRebuildCT")]
+            public int RebuildCurveCount { get; set; } = 80;
+
 
     }
 

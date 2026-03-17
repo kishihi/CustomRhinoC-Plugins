@@ -24,25 +24,28 @@ namespace MyChangeTools.commands.RbfDeform
             var rc = Selection.SelectGeometries(doc, "Select geoms to flow", ObjectType.AnyObject, out ObjRef[] objRefs);
             if (rc != Result.Success) return Result.Failure;
 
-            rc = Selection.SelectGeometries(doc, "Select baseCurves", ObjectType.Curve, out ObjRef[] baseCurveRfs);
-            if (rc != Result.Success) return Result.Failure;
-
-            rc = Selection.SelectGeometries(doc, "Select targetCurves, the order and amount must correspond with baseCurves", ObjectType.Curve, out ObjRef[] targetCurvesRfs);
-            if (rc != Result.Success) return Result.Failure;
 
             var limitedtypes = ObjectType.Curve | ObjectType.Mesh | ObjectType.Point;
 
-            rc = Selection.SelectGeometries(doc, "Select limmited Curves , Meshs, Points, Enter means no limmited", limitedtypes, out ObjRef[] limitedObjRfs);
+            rc = Selection.SelectGeometries(doc, "Select base Curves , Meshs, Points",
+                limitedtypes, out ObjRef[] baseObjRfs);
+            if (rc != Result.Success) return Result.Failure;
+
+            rc = Selection.SelectGeometries
+                (doc, "Select target Curves , Meshs, Points, the order and amount must correspond with baseObjs",
+                limitedtypes, out ObjRef[] targetObjRfs);
+            if (rc != Result.Success) return Result.Failure;
+
+            rc = Selection.SelectGeometries
+                (doc, "Select limmited Curves , Meshs, Points, Enter means no limmited", 
+                limitedtypes, out ObjRef[] limitedObjRfs);
             if (rc != Result.Success)
                 limitedObjRfs = new ObjRef[0];
 
             rc = Selection.GetVector(out List<Vector3d> MoveVectors);
             if (rc != Result.Success) return Result.Failure;
 
-            Curve[] baseCurves = baseCurveRfs.Where(x => x != null).Select(t => t.Curve()).ToArray();
-            Curve[] targetCurves = targetCurvesRfs.Where(x => x != null).Select(t => t.Curve()).ToArray();
-
-            var processor = new GeometryProcessor(doc, objRefs, baseCurves, targetCurves, limitedObjRfs, MoveVectors, Selection.ProcessOption);
+            var processor = new GeometryProcessor(doc, objRefs, baseObjRfs, targetObjRfs, limitedObjRfs, MoveVectors, Selection.ProcessOption);
             rc = processor.Process();
             if (rc != Result.Success) return Result.Failure;
             doc.Views.Redraw();

@@ -5,10 +5,9 @@ using Rhino.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
 using System.Threading.Tasks;
 
-namespace MyChangeTools.commands.RbfDeform
+namespace MyChangeTools.commands.Mvc2DOutlineReplace
 {
     class MyPointFieldMorph : SpaceMorph
     {
@@ -36,17 +35,9 @@ namespace MyChangeTools.commands.RbfDeform
         }
     }
 
-    internal class MorphedGeom
-    {
-        public GeometryBase[] GeometryBases { get; set; }
-        public ObjectAttributes Attributes { get; set; }
-    }
-
     internal class GeometryProcessor
     {
-        private readonly Deform _deform;
-        private readonly List<Vector3d> _moveVectors;
-        private readonly double _Tolerance;
+        //private readonly double _Tolerance;
         private readonly bool _IsCopy;
         private readonly MyPointFieldMorph _morph;
         private readonly RhinoDoc _doc;
@@ -54,38 +45,62 @@ namespace MyChangeTools.commands.RbfDeform
         private long _failMorphPointCount;
         private long _successMorphPointCount;
 
-        private readonly Mylib.MyGeomMorph _myGeomMorph;
 
-        private readonly bool _useCustomMorph = false;
+        bool GetSamplePoint2dsOnTwoCurves(Curve baseCurve, Curve targetCurve, double samplePointDistance, out List<Point2d> basePts, out List<Point2d> targetPts)
+        {
+            basePts = new List<Point2d>();
+            targetPts = new List<Point2d>();
+            double baseLength = baseCurve.GetLength();
+            double targetLength = targetCurve.GetLength();
+            int sampleCount = (int)System.Math.Ceiling((Math.Max(baseLength, targetLength) / samplePointDistance) + 1);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                double tBase = baseCurve.Domain.ParameterAt((double)i / (sampleCount - 1));
+                double tTarget = targetCurve.Domain.ParameterAt((double)i / (sampleCount - 1));
+                Point3d ptBase = baseCurve.PointAt(tBase);
+                Point3d ptTarget = targetCurve.PointAt(tTarget);
+                basePts.Add(new Point2d(ptBase.X, ptBase.Y));
+                targetPts.Add(new Point2d(ptTarget.X, ptTarget.Y));
+            }
+
+            if(basePts.Count < 2 || targetPts.Count < 2)
+            {
+                RhinoApp.WriteLine("采样点不足，无法进行变形。请调整采样点距离或检查曲线。");
+                return false;
+            }
+            if (basePts.Count != targetPts.Count)
+            {
+                RhinoApp.WriteLine("基准曲线和目标曲线的采样点数量不匹配，无法进行变形。请检查曲线。");
+                return false;
+            }
+            return true;
+        }
 
 
         public GeometryProcessor(
             RhinoDoc doc,
             ObjRef[] objRefs,
-            ObjRef[] baseObjRfs,
-            ObjRef[] targetObjRfs,
-            ObjRef[] limitedObjRfs,
-            List<Vector3d> MoveVectors,
+            Curve baseCurve,
+            Curve targetCurve,
             SelectionOptions selectionOptions)
         {
             _doc = doc;
             _objRefs = objRefs;
-            _moveVectors = MoveVectors;
-            _Tolerance = selectionOptions.Tolerance;
-            _deform = new Deform(baseObjRfs, targetObjRfs, limitedObjRfs, selectionOptions);
+            //_Tolerance = selectionOptions.Tolerance;
 
-            // 预先单位化向量（避免百万次Unitize）
-            for (int i = 0; i < _moveVectors.Count; i++)
+
+            var sampleok = GetSamplePoint2dsOnTwoCurves(baseCurve, targetCurve, selectionOptions.SamplePointDistance, out List<Point2d> basePts, out List<Point2d> targetPts);
+
+            if(!sampleok)
             {
-                var v = _moveVectors[i];
-                v.Unitize();
-                _moveVectors[i] = v;
+                RhinoApp.WriteLine("采样点不足，无法进行变形。请调整采样点距离或检查曲线。");
+                throw new ArgumentException("采样点不足，无法进行变形。请调整采样点距离或检查曲线。");
             }
 
-            Func<Point3d, Point3d> processPoint = pt =>
+            _morph = new MyPointFieldMorph(pt =>
             {
-                var ok = _deform.MorphPoint(pt, out Point3d newpt);
-                if (!ok)
+                var newpt = MvcCompute.DeformPoint(pt, basePts, targetPts);
+                if (newpt == Point3d.Unset || newpt == null)
                 {
                     _failMorphPointCount++;
 
@@ -94,46 +109,12 @@ namespace MyChangeTools.commands.RbfDeform
                 {
                     _successMorphPointCount++;
                 }
-                //把最终的移动限制在几个向量方向上；
-                if (_moveVectors.Count > 0)
-                {
-                    var delta = newpt - pt;
-                    var resultDelta = Vector3d.Zero;
-                    foreach (var v in _moveVectors)
-                    {
-                        Vector3d mv = Vector3d.Multiply(delta, v) * v;
-                        resultDelta += mv;
-                    }
-                    newpt = pt + resultDelta;
-                }
                 return newpt;
-            };
-
-
-            // use custommorph
-            if (selectionOptions.UseCustomMorph)
-            {
-                _myGeomMorph = new Mylib.MyGeomMorph(
-                    doc,
-                    processPoint,
-                    selectionOptions.Tolerance,
-                    selectionOptions.RebuildFaceUCount,
-                    selectionOptions.RebuildFaceVCount,
-                    selectionOptions.RebuildCurveCount,
-                    selectionOptions.ShrinkSurfaceToEdge
-                );
-                _useCustomMorph = true;
-            }
-            else
-            {
-                _morph = new MyPointFieldMorph(
-                    processPoint,
-                    selectionOptions.Tolerance,
-                    selectionOptions.PreserveStructure,
-                    selectionOptions.QuickPreview
-                );
-                _useCustomMorph = false;
-            }
+            },
+            selectionOptions.Tolerance,
+            selectionOptions.PreserveStructure,
+            selectionOptions.QuickPreview
+            );
 
             _IsCopy = selectionOptions.IsCopy;
         }
@@ -145,7 +126,7 @@ namespace MyChangeTools.commands.RbfDeform
             var sw = Stopwatch.StartNew();
 
 
-            List<MorphedGeom> successProcessObjs = new List<MorphedGeom>();
+            List<GeometryBase> successProcessObjs = new List<GeometryBase>();
             List<ObjRef> failProcessObjRefs = new List<ObjRef>();
 
             object mergeLock = new object();
@@ -157,7 +138,7 @@ namespace MyChangeTools.commands.RbfDeform
                 _objRefs,
 
                 // 每线程初始化
-                () => new List<MorphedGeom>(8),
+                () => new List<GeometryBase>(8),
 
                 // 并行处理
                 (objRef, loopState, localList) =>
@@ -175,44 +156,17 @@ namespace MyChangeTools.commands.RbfDeform
                             var eo = geom as Extrusion;
                             geom = eo.ToBrep() as GeometryBase;
                         }
-                        
-                        if (!_useCustomMorph)
-                        {
-                            if (_morph.Morph(geom))
-                            {
-                                localList.Add(new MorphedGeom
-                                {
-                                    GeometryBases = new[] { geom },
-                                    Attributes = objRef.Object().Attributes.Duplicate()
-                                });
 
-                                Interlocked.Increment(ref successCount);
-                            }
-                            else
-                            {
-                                lock (mergeLock) failProcessObjRefs.Add(objRef);
-                                Interlocked.Increment(ref failCount);
-                            }
+                        //直接morph尝试变换
+                        if (_morph.Morph(geom))
+                        {
+                            localList.Add(geom);
+                            System.Threading.Interlocked.Increment(ref successCount);
                         }
                         else
                         {
-                            var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
-                            if (morphed)
-                            {
-                                localList.Add(new MorphedGeom
-                                {
-                                    GeometryBases = newGeoms,
-                                    Attributes = objRef.Object().Attributes.Duplicate()
-                                });
-                                Interlocked.Increment(ref successCount);
-                            }
-                            else
-                            {
-                                lock (mergeLock) failProcessObjRefs.Add(objRef);
-                                Interlocked.Increment(ref failCount);
-
-                            }
-
+                            lock (mergeLock) failProcessObjRefs.Add(objRef);
+                            System.Threading.Interlocked.Increment(ref failCount);
                         }
 
                     }
@@ -235,21 +189,15 @@ namespace MyChangeTools.commands.RbfDeform
 
             RhinoApp.InvokeOnUiThread((Action)(() =>
             {
-
-                _doc.Views.RedrawEnabled = false;
                 List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
 
-                foreach (var mg in successProcessObjs)
+                foreach (GeometryBase g in successProcessObjs)
                 {
-                    foreach (var g in mg.GeometryBases)
-                    {   
 
-                        //添加对象同时把属性加过去
-                        Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
+                    Guid id = _doc.Objects.Add(g);
 
-                        if (id != Guid.Empty)
-                            newIds.Add(id);
-                    }
+                    if (id != Guid.Empty)
+                        newIds.Add(id);
                 }
 
                 // 选中新对象

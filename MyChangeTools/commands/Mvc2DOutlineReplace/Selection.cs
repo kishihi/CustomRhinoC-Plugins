@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace MyChangeTools.commands.RbfDeform
+namespace MyChangeTools.commands.Mvc2DOutlineReplace
 {
 
     [AttributeUsage(AttributeTargets.Property)]
@@ -90,40 +90,11 @@ namespace MyChangeTools.commands.RbfDeform
         [Option("复制对象")]
         public bool IsCopy { get; set; } = false;
 
-        [Option("线性系统")]
-        public bool LinearSystem { get; set; } = false;
-
-        [Option("基准和目标曲线采样点以参数匹配")]
-        public bool SampleByParameter { get; set; } = false;
-
-        [Option("网格点以网格坐标系匹配")]
-        public bool MatchMeshByCoordinate { get; set; } = true;
-
-        [Option("采样点影响半径")]
-        public double InfectRadius { get; set; } = 0; // 0 代表不限制影响范围 
-
-        [Option("在曲线上的采样点距离")]
-        public double SampleDistance { get; set; } = 1.0;
-
         [Option("Tolerance")]
         public double Tolerance { get; set; } = 0.01;
 
-        //UseMyGeomMorph
-
-        [Option("UseMyGeomMorph")]
-        public bool UseCustomMorph { get; set; } = false;
-
-        [Option("MyGeomMorphShrinkSurfaceToEdge")]
-        public bool ShrinkSurfaceToEdge { get; set; } = false;
-
-        [Option("MyGeomMorphRebuildFU")]
-        public int RebuildFaceUCount { get; set; } = 0;
-
-        [Option("MyGeomMorphRebuildFV")]
-        public int RebuildFaceVCount { get; set; } = 0;
-
-        [Option("MyGeomMorphRebuildCT")]
-        public int RebuildCurveCount { get; set; } = 0;
+        [Option("采样点距离")]
+        public double SamplePointDistance { get; set; } = 1.0;
 
     }
     public class Selection
@@ -188,22 +159,15 @@ namespace MyChangeTools.commands.RbfDeform
 
 
         public static Result GetVector(
-        out List<Vector3d> projectVectors
+        //out List<Vector3d> projectVectors
         )
         {
-            projectVectors = new List<Vector3d>();
+            //projectVectors = new List<Vector3d>();
 
-            var go = new GetOption();
-            go.SetCommandPrompt("选择最终移动的限制方向 (Enter 默认 Unset)");
-            int optX = go.AddOption("X轴");
-            int optY = go.AddOption("Y轴");
-            int optZ = go.AddOption("Z轴");
-            int optPick = go.AddOption("两点定义");
-            int optXY = go.AddOption("XY底面");
-            int optYZ = go.AddOption("YZ侧面");
-            int optXZ = go.AddOption("XZ前面");
+            var go = new GetString();
+            go.SetCommandPrompt("设置参数,Enter继续");
 
-
+            //go.AcceptNothing(true);
 
             var boolMap = new Dictionary<string, OptionToggle>();
             var intMap = new Dictionary<string, OptionInteger>();
@@ -258,7 +222,7 @@ namespace MyChangeTools.commands.RbfDeform
                     if (res == GetResult.Cancel)
                     {
                         //默认使用none , use mesh normal for per point
-                        RhinoApp.WriteLine("Vector Unset");
+                        //RhinoApp.WriteLine("Vector Unset");
                         break;
                     }
 
@@ -290,68 +254,6 @@ namespace MyChangeTools.commands.RbfDeform
                             }
                         }
 
-                        // 处理内置方向选项
-                        if (optindex == optX)
-                        {
-                            //projectVector = Vector3d.XAxis;
-                            projectVectors.Add(Vector3d.XAxis);
-                            RhinoApp.WriteLine($"XAxis作为方向");
-                            break;
-                        }
-
-                        else if (optindex == optY)
-                        {
-                            projectVectors.Add(Vector3d.YAxis);
-                            RhinoApp.WriteLine($"YAxis作为方向");
-                            break;
-                        }
-                        else if (optindex == optZ)
-                        {
-                            projectVectors.Add(Vector3d.ZAxis);
-                            RhinoApp.WriteLine($"ZAxis作为方向");
-                            break;
-                        }
-                        else if (optindex == optPick)
-                        {
-                            if (RhinoGet.GetPoint("选择第一个点", false, out Point3d p1) != Result.Success)
-                                return Result.Cancel;
-
-                            if (RhinoGet.GetPoint("选择第二个点", false, out Point3d p2) != Result.Success)
-                                return Result.Cancel;
-
-                            var projectVector = p2 - p1;
-                            if (!projectVector.Unitize())
-                            {
-                                RhinoApp.WriteLine("两点重合，方向无效。请重新选择方向。");
-                                continue; // 继续循环，重新获取选项
-                            }
-                            projectVectors.Add(projectVector);
-                            break; // 成功获取方向，退出
-                        }
-                        else if (optindex == optXY)
-                        {
-                            projectVectors.Add(Vector3d.XAxis);
-                            projectVectors.Add(Vector3d.YAxis);
-                            RhinoApp.WriteLine($"move on xy  plane");
-                            break;
-                        }
-
-                        else if (optindex == optYZ)
-                        {
-
-                            projectVectors.Add(Vector3d.YAxis);
-                            projectVectors.Add(Vector3d.ZAxis);
-                            RhinoApp.WriteLine($"move on yz side plane");
-                            break;
-                        }
-                        else if (optindex == optXZ)
-                        {
-
-                            projectVectors.Add(Vector3d.XAxis);
-                            projectVectors.Add(Vector3d.ZAxis);
-                            RhinoApp.WriteLine($"move on xz front plane");
-                            break;
-                        }
                     }
                     else
                     {
@@ -362,23 +264,23 @@ namespace MyChangeTools.commands.RbfDeform
                 }
 
             }
-            foreach (var projectVector in projectVectors)
-            {
-                {
-                    if (projectVector == Vector3d.Unset)
-                    {
-                        RhinoApp.WriteLine("方向无效。请重新选择方向。");
-                        return Result.Failure; // 理论上不会发生
+            //foreach (var projectVector in projectVectors)
+            //{
+            //    {
+            //        if (projectVector == Vector3d.Unset)
+            //        {
+            //            RhinoApp.WriteLine("方向无效。请重新选择方向。");
+            //            return Result.Failure; // 理论上不会发生
 
-                    }
-                    else if (!projectVector.Unitize())
-                    {
-                        RhinoApp.WriteLine("方向无效。请重新选择方向。");
-                        return Result.Failure; // 理论上不会发生，除非是零向量
-                    }
-                }
+            //        }
+            //        else if (!projectVector.Unitize())
+            //        {
+            //            RhinoApp.WriteLine("方向无效。请重新选择方向。");
+            //            return Result.Failure; // 理论上不会发生，除非是零向量
+            //        }
+            //    }
                 
-            }
+            //}
             return Result.Success;
 
         }

@@ -1,6 +1,7 @@
 ﻿using MathNet.Numerics.LinearAlgebra.Double;
 using Rhino;
 using Rhino.Geometry;
+using Rhino.PlugIns;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -343,31 +344,101 @@ namespace MyChangeTools.commands.RbfDeform
         private readonly List<Vector3d> _deltas = new List<Vector3d>();
         private readonly RBFDeformer _rbfDeformer;
 
-        public Deform(Curve[] baseCurves, Curve[] targetCurves, Rhino.DocObjects.ObjRef[] limitedObjs, SelectionOptions selectionOptions)
+        public Deform(
+            Rhino.DocObjects.ObjRef[] baseObjRfs, 
+            Rhino.DocObjects.ObjRef[] targetObjRfs, 
+            Rhino.DocObjects.ObjRef[] limitedObjs, 
+            SelectionOptions selectionOptions)
         {
             // _rbfDeformer
-            if (baseCurves.Length == 0 || baseCurves.Length != targetCurves.Length)
+            if (baseObjRfs.Length == 0 || baseObjRfs.Length != targetObjRfs.Length)
             {
-                RhinoApp.WriteLine("baseCurves Count Must equal targetCurves Count , ant at least one");
-                throw new InvalidOperationException("baseCurves Count Must equal targetCurves Count, ant at least one");
+                RhinoApp.WriteLine("baseObjRfs Count Must equal targetObjRfs Count , ant at least one");
+                throw new InvalidOperationException("baseObjRfs Count Must equal targetObjRfs Count , ant at least one");
             }
 
             var bools = new List<bool>();
 
-            for (int i = 0; i < baseCurves.Length; i++)
+            var basePts = new List<Point3d>();
+            var targetPts = new List<Point3d>();
+
+            //可以是曲线,网格,点，分别处理
+
+            for (int i = 0; i < baseObjRfs.Length; i++)
             {
-                var baseCurve = baseCurves[i];
-                var targetCurve = targetCurves[i];
-                int count = (int)Math.Ceiling(Math.Min(baseCurve.GetLength(), targetCurve.GetLength()) / selectionOptions.SampleDistance + 1);
-                int successCount = 0;
-                if (!selectionOptions.SampleByParameter)
-                    bools.Add(AddDeltasFromSamplePointsByClosestPoint(baseCurve, targetCurve, count, out successCount));
+                var baseobj = baseObjRfs[i].Geometry();
+                var targetobj = targetObjRfs[i].Geometry();
+                if (baseobj.ObjectType !=targetobj.ObjectType)
+                {
+                    RhinoApp.WriteLine("Every baseObj ObjectType Must equal to targetObj ObjectType");
+                    throw new InvalidOperationException("Every baseObj ObjectType Must equal to targetObj ObjectType");
+                }
+                if(baseobj.ObjectType == Rhino.DocObjects.ObjectType.Curve)
+                {
+                    var baseCurve = baseObjRfs[i].Curve();
+                    var targetCurve = targetObjRfs[i].Curve();
+                    int count = (int)Math.Ceiling(Math.Min(baseCurve.GetLength(), targetCurve.GetLength()) / selectionOptions.SampleDistance + 1);
+                    int successCount = 0;
+                    if (!selectionOptions.SampleByParameter)
+                        bools.Add(AddDeltasFromTwoCurveSamplePointsByClosestPoint(baseCurve, targetCurve, count, out successCount));
+                    else
+                        bools.Add(AddDeltasFromTwoCurveSamplePointsByLength(baseCurve, targetCurve, count, out successCount));
+                    if (successCount > 0)
+                        Rhino.RhinoApp.WriteLine($"曲线对{i + 1} 成功采样了{successCount}个点");
+                    else
+                        Rhino.RhinoApp.WriteLine($"曲线对{i + 1} 没有采样到点");
+                }
+                else if(baseobj.ObjectType == Rhino.DocObjects.ObjectType.Mesh)
+                {
+                    var baseMesh = baseObjRfs[i].Mesh();
+                    var targetMesh = targetObjRfs[i].Mesh();
+                    int successCount = 0;
+                    var ok = false;
+                    if(!selectionOptions.MatchMeshByCoordinate)
+                        ok = AddDeltasFromTwoMeshByVertexOrder(baseMesh,targetMesh,out successCount);
+                    else
+                        ok = AddDeltasFromTwoMeshByCoordinate(baseMesh, targetMesh, out successCount);
+                    if (ok)
+                    {
+                        Rhino.RhinoApp.WriteLine($"Mesh对{i + 1} 成功采样了{successCount}个点");
+                    }
+                    else
+                    {
+                        Rhino.RhinoApp.WriteLine($"Mesh对{i + 1} 没有采样到点");
+                    }
+                    bools.Add(ok);
+                }
+
+                else if (baseobj.ObjectType == Rhino.DocObjects.ObjectType.Point)
+                {
+                    // 点对象转为点位置Point3d
+                    basePts.Add(((Rhino.Geometry.Point)baseobj).Location);
+                    targetPts.Add(((Rhino.Geometry.Point)targetobj).Location);
+
+                }
+
                 else
-                    bools.Add(AddDeltasFromSamplePointsByLength(baseCurve, targetCurve, count, out successCount));
-                if (successCount > 0)
-                    Rhino.RhinoApp.WriteLine($"曲线对{i + 1} 成功采样了{successCount}个点");
+                {
+                    Rhino.RhinoApp.WriteLine($"base or target 对象 {i + 1} 不是曲线,网格,点，无法采样");
+                }
+
+
+            }
+
+            if (basePts.Count > 0 && targetPts.Count > 0)
+            {
+
+                var ok = AddDeltasFormTwoPts(basePts, targetPts, out int successCount);
+                if (ok)
+                {
+                    Rhino.RhinoApp.WriteLine($"Point对成功采样了{successCount}个点");
+                }
                 else
-                    Rhino.RhinoApp.WriteLine($"曲线对{i + 1} 没有采样到点");
+                {
+                    Rhino.RhinoApp.WriteLine($"Point对Fail to sample points");
+                }
+                bools.Add(ok);
+            
             }
 
             // limitedObjs 可以是曲线,网格,点，分别处理
@@ -557,7 +628,7 @@ namespace MyChangeTools.commands.RbfDeform
             return successCount > 0;
         }
 
-        bool AddDeltasFromSamplePointsByClosestPoint(Curve baseCurve, Curve targetCurve, int count, out int successCount)
+        bool AddDeltasFromTwoCurveSamplePointsByClosestPoint(Curve baseCurve, Curve targetCurve, int count, out int successCount)
         {
             successCount = 0;
             NurbsCurve nurbsBaseCurve = baseCurve.ToNurbsCurve();
@@ -590,7 +661,7 @@ namespace MyChangeTools.commands.RbfDeform
 
         }
 
-        bool AddDeltasFromSamplePointsByLength(Curve baseCurve, Curve targetCurve, int count, out int successCount)
+        bool AddDeltasFromTwoCurveSamplePointsByLength(Curve baseCurve, Curve targetCurve, int count, out int successCount)
         {
             successCount = 0;
 
@@ -628,6 +699,49 @@ namespace MyChangeTools.commands.RbfDeform
             {
                 return false;
             }
+        }
+
+
+        bool AddDeltasFromTwoMeshByVertexOrder(Mesh baseMesh, Mesh targetMesh,out int successCount)
+        {
+            successCount = 0;
+            if (baseMesh.Vertices.Count != targetMesh.Vertices.Count) { return false; };
+            var srcPts = baseMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
+            var dstPts = targetMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
+            var deltas = srcPts.Zip(dstPts, (src, dst) => dst - src);
+            _srcPoints.AddRange(srcPts);
+            _deltas.AddRange(deltas);
+            successCount = srcPts.Count();
+            return successCount > 0;
+        }
+
+        bool AddDeltasFromTwoMeshByCoordinate(Mesh baseMesh, Mesh targetMesh, out int successCount)
+        {
+            successCount = 0;
+            if (baseMesh.Vertices.Count != targetMesh.Vertices.Count) { return false; }
+
+            var srcPts = baseMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
+
+            var baseMps = srcPts.Select(t => baseMesh.ClosestMeshPoint(t, 0.0));
+
+            var dstPts = baseMps.Select(bmp=>targetMesh.PointAt(bmp));
+
+            var deltas = srcPts.Zip(dstPts, (src, dst) => dst - src);
+            _srcPoints.AddRange(srcPts);
+            _deltas.AddRange(deltas);
+            successCount = srcPts.Count();
+            return successCount > 0;
+        }
+
+        bool AddDeltasFormTwoPts(IEnumerable<Point3d> basePts,IEnumerable<Point3d> targetPts,out int successCount)
+        {
+            successCount=0;
+            if(basePts.Count()!=targetPts.Count()) return false;
+            var deltas = basePts.Zip(targetPts, (src, dst) => dst - src);
+            _srcPoints.AddRange(basePts);
+            _deltas.AddRange(deltas);
+            successCount=basePts.Count();
+            return successCount > 0;
         }
 
     }

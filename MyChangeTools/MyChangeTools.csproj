@@ -3,18 +3,18 @@
 	<PropertyGroup>
 
 		<TargetFramework>net48</TargetFramework>
-		<!-- <EnableDynamicLoading>true</EnableDynamicLoading> -->
+		<EnableDynamicLoading>true</EnableDynamicLoading>
 		<TargetExt>.rhp</TargetExt>
 		<NoWarn>NU1701</NoWarn>
 		<LangVersion>7.0</LangVersion>
 		<RestoreEnabled>false</RestoreEnabled>
-		<UseWindowsForms>true</UseWindowsForms>
+		<UseWindowsForms>false</UseWindowsForms>
 	</PropertyGroup>
 
 
 	<PropertyGroup>
 		
-		<Version>1.4.3</Version>
+		<Version>1.4.8.2</Version>
 		<AssemblyVersion>$(Version)</AssemblyVersion>
 		<Title>MyChangeTools</Title>
 		<Authors>Whysiki</Authors>
@@ -63,7 +63,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-	  <Folder Include="commands\Mvc2DOutlineReplace\" />
+	  <Folder Include="commands\RbfDeform\Panel\" />
 	</ItemGroup>
 
 	<PropertyGroup>

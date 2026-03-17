@@ -2,7 +2,6 @@
 using Rhino.Commands;
 using Rhino.DocObjects;
 using Rhino.Geometry;
-using Rhino.Input.Custom;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -47,6 +46,11 @@ namespace MyChangeTools.commands.FlowAlongMesh
         private readonly Mesh _targetMesh;
         private readonly Vector3d _limitNormalVector;
         private readonly double _Tolerance;
+
+        private readonly SubD _baseSubD;
+        private readonly Brep _baseBrep;
+
+
         private readonly SubD _targetSubD;
         private readonly Brep _targetBrep;
 
@@ -57,6 +61,11 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
 
         private readonly MyPointFieldMorph _morph;
+
+        private readonly Mylib.MyGeomMorph _myGeomMorph;
+
+        private readonly bool _useCustomMorph = false;
+
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Mesh baseMesh, Mesh targetMesh, Vector3d limitNormalVector, SelectionOptions selectionOptions)
         {
             _doc = doc;
@@ -66,25 +75,54 @@ namespace MyChangeTools.commands.FlowAlongMesh
             _limitNormalVector = limitNormalVector;
             _Tolerance = selectionOptions.Tolerance;
 
-            _morph = new MyPointFieldMorph(pt =>
+            if (!selectionOptions.UseCustomMorph)
             {
-                var newpt = ProcessPoint(pt);
-                if (newpt == Point3d.Unset)
-                    _failMorphPointCount++;
-                else
-                    _successMorphPointCount++;
-                return ProcessPoint(pt);
-            },
-            selectionOptions.Tolerance,
-            selectionOptions.PreserveStructure,
-            selectionOptions.QuickPreview
-            );
+                _morph = new MyPointFieldMorph(pt =>
+                {
+                    var newpt = ProcessPoint(pt);
+                    if (newpt == Point3d.Unset)
+                        _failMorphPointCount++;
+                    else
+                        _successMorphPointCount++;
+                    return ProcessPoint(pt);
+                },
+                selectionOptions.Tolerance,
+                selectionOptions.PreserveStructure,
+                selectionOptions.QuickPreview
+                );
+                _useCustomMorph = false;
+            }
+            else
+            {
+                _myGeomMorph = new Mylib.MyGeomMorph(
+                    doc,
+                    pt =>
+                    {
+                        var newpt = ProcessPoint(pt);
+                        if (newpt == Point3d.Unset)
+                            _failMorphPointCount++;
+                        else
+                            _successMorphPointCount++;
+                        return ProcessPoint(pt);
+                    },
+                    selectionOptions.Tolerance,
+                    selectionOptions.RebuildFaceUCount,
+                    selectionOptions.RebuildFaceVCount,
+                    selectionOptions.RebuildCurveCount,
+                    selectionOptions.ShrinkSurfaceToEdge
+                    );
+                _useCustomMorph = true;
+            }
 
             _IsCopy = selectionOptions.IsCopy;
 
             _targetSubD = SubD.CreateFromMesh(targetMesh);
 
             _targetBrep = _targetSubD.ToBrep(SubDToBrepOptions.Default);
+
+            _baseSubD = SubD.CreateFromMesh(baseMesh);
+
+            _baseBrep = _baseSubD.ToBrep(SubDToBrepOptions.Default);
 
         }
 
@@ -100,11 +138,40 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
             if (_limitNormalVector == Vector3d.Unset)
             {
-                n = _baseMesh.NormalAt(mp);
+                
+                if (_baseBrep.ClosestPoint(
+                    q,
+                    out Point3d closestPoint0,
+                    out ComponentIndex ci0,
+                    out double s0,
+                    out double t0,
+                    0,
+                    out Vector3d normal0)
+                )
+                {
+                    q = closestPoint0;
+                    n = normal0;
+                }
+                else
+                {
+                    n = _baseMesh.NormalAt(mp);
+                }
             }
             else
             {
                 n = _limitNormalVector;
+                if (_baseBrep.ClosestPoint(
+                    q,
+                    out Point3d closestPoint0,
+                    out ComponentIndex ci0,
+                    out double s0,
+                    out double t0,
+                    0,
+                    out Vector3d normal0)
+                )
+                {
+                    q = closestPoint0;
+                }
             }
 
             double height = (p - q) * n;
@@ -196,21 +263,39 @@ namespace MyChangeTools.commands.FlowAlongMesh
                         }
 
                         //直接morph尝试变换
-                        if (_morph.Morph(geom))
+                        if (!_useCustomMorph)
                         {
-                            localList.Add(geom);
-                            Interlocked.Increment(ref successCount);
+                            if (_morph.Morph(geom))
+                            {
+                                localList.Add(geom);
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                Interlocked.Increment(ref failCount);
+                            }
                         }
                         else
                         {
-                            lock (mergeLock) failProcessObjRefs.Add(objRef);
-                            Interlocked.Increment(ref failCount);
-                        }
+                            var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
+                            if (morphed)
+                            {
+                                localList.AddRange(newGeoms);
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                Interlocked.Increment(ref failCount);
 
+                            }
+
+                        }
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        RhinoApp.WriteLine("对象处理出错: " + ex.Message);
+                        // RhinoApp.WriteLine("对象处理出错: " + ex.Message);
                     }
 
                     return localList;
