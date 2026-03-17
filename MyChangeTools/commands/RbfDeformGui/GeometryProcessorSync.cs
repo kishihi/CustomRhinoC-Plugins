@@ -5,45 +5,11 @@ using Rhino.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-// using MyChangeTools.commands.RbfDeform;
 
 namespace MyChangeTools.commands.RbfDeformGui
 {
-    class MyPointFieldMorph : SpaceMorph
-    {
-        private readonly Func<Point3d, Point3d> _processPointFunc;
 
-        public MyPointFieldMorph(Func<Point3d, Point3d> processPointFunc, double tolerance, bool preserveStructure, bool quickPreview)
-        {
-            _processPointFunc = processPointFunc;
-            PreserveStructure = preserveStructure;
-            Tolerance = tolerance;
-            QuickPreview = quickPreview;
-        }
-
-        public override Point3d MorphPoint(Point3d point)
-        {
-            try
-            {
-                var newPt = _processPointFunc(point);
-                return newPt;
-            }
-            catch
-            {
-                return Point3d.Unset; //如果变换过程中发生异常，也返回Unset
-            }
-        }
-    }
-
-    internal class MorphedGeom
-    {
-        public GeometryBase[] GeometryBases { get; set; }
-        public ObjectAttributes Attributes { get; set; }
-    }
-
-    internal class GeometryProcessor
+    internal class GeometryProcessorSync
     {
         private readonly RBFLib.Deform _deform;
         private readonly List<Vector3d> _moveVectors;
@@ -60,7 +26,7 @@ namespace MyChangeTools.commands.RbfDeformGui
         private readonly bool _useCustomMorph = false;
 
 
-        public GeometryProcessor(
+        public GeometryProcessorSync(
             RhinoDoc doc,
             ObjRef[] objRefs,
             ObjRef[] baseObjRfs,
@@ -88,14 +54,12 @@ namespace MyChangeTools.commands.RbfDeformGui
                 var ok = _deform.MorphPoint(pt, out Point3d newpt);
                 if (!ok)
                 {
-                    // _failMorphPointCount++;
-                    Interlocked.Increment(ref _failMorphPointCount);
+                    _failMorphPointCount++;
 
                 }
                 else
                 {
-                    // _successMorphPointCount++;
-                    Interlocked.Increment(ref _successMorphPointCount);
+                    _successMorphPointCount++;
                 }
                 //把最终的移动限制在几个向量方向上；
                 if (_moveVectors.Count > 0)
@@ -141,7 +105,7 @@ namespace MyChangeTools.commands.RbfDeformGui
             _IsCopy = _configs.IsCopy;
         }
 
-        public Result Process()
+        public Result ProcessSync()
         {
 
             //计时开始
@@ -174,90 +138,64 @@ namespace MyChangeTools.commands.RbfDeformGui
                 workItems.Add((geom, attr, objRef));
             }
 
-            Parallel.ForEach(
-                workItems,
-
-                // 每线程初始化
-                () => new List<MorphedGeom>(8),
-
-                // 并行处理
-                (item, loopState, localList) =>
+            foreach (var item in workItems)
+            {
+                try
                 {
-                    try
+                    var geom = item.geom;
+                    if (geom == null)
+                        continue;
+
+                    if (geom.ObjectType == Rhino.DocObjects.ObjectType.Extrusion)
                     {
-                        var geom = item.geom;
-                        if (geom == null)
-                            return localList;
+                        var eo = geom as Extrusion;
+                        geom = eo.ToBrep() as GeometryBase;
+                    }
 
-                        if (geom.ObjectType == Rhino.DocObjects.ObjectType.Extrusion)
+                    // 默认变形
+                    if (!_useCustomMorph)
+                    {
+                        if (_morph.Morph(geom))
                         {
-                            var eo = geom as Extrusion;
-                            geom = eo.ToBrep() as GeometryBase;
-                        }
-
-                        //默认变形
-                        if (!_useCustomMorph)
-                        {
-                            if (_morph.Morph(geom))
+                            successProcessObjs.Add(new MorphedGeom
                             {
-                                localList.Add(new MorphedGeom
-                                {
-                                    GeometryBases = new[] { geom },
-                                    Attributes = item.attr
-                                });
-
-                                Interlocked.Increment(ref successCount);
-                            }
-                            else
-                            {
-                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
-                                Interlocked.Increment(ref failCount);
-                            }
+                                GeometryBases = new[] { geom },
+                                Attributes = item.attr
+                            });
+                            successCount++;
                         }
-                        //自定义的变形类
                         else
                         {
-                            var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
-                            if (morphed)
-                            {
-                                localList.Add(new MorphedGeom
-                                {
-                                    GeometryBases = newGeoms,
-                                    Attributes = item.attr
-                                });
-                                Interlocked.Increment(ref successCount);
-                            }
-                            else
-                            {
-                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
-                                Interlocked.Increment(ref failCount);
-
-                            }
-
+                            failProcessObjRefs.Add(item.objRef);
+                            failCount++;
                         }
-
                     }
-                    catch (Exception ex)
+                    // 自定义变形
+                    else
                     {
-                        RhinoApp.WriteLine("对象处理出错: " + ex.Message);
+                        var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
+                        if (morphed)
+                        {
+                            successProcessObjs.Add(new MorphedGeom
+                            {
+                                GeometryBases = newGeoms,
+                                Attributes = item.attr
+                            });
+                            successCount++;
+                        }
+                        else
+                        {
+                            failProcessObjRefs.Add(item.objRef);
+                            failCount++;
+                        }
                     }
-
-                    return localList;
-                },
-
-                // 合并线程结果
-                localList =>
+                }
+                catch (Exception ex)
                 {
-                    lock (mergeLock)
-                        successProcessObjs.AddRange(localList);
-                });
+                    RhinoApp.WriteLine("对象处理出错: " + ex.Message);
+                }
+            }
 
-            // ================= UI线程 =================
-
-            // RhinoApp.InvokeOnUiThread((Action)(() =>
-            // {
-
-            // _doc.Views.RedrawEnabled = false;
             List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
 
             foreach (var mg in successProcessObjs)
@@ -303,13 +241,6 @@ namespace MyChangeTools.commands.RbfDeformGui
             RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
             RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
             RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
-
-
-            // _doc.Views.RedrawEnabled = true;
-            // _doc.Views.Redraw();
-
-
-            // }));
 
             return Result.Success;
         }

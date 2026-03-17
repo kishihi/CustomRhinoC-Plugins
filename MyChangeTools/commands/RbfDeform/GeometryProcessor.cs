@@ -153,22 +153,38 @@ namespace MyChangeTools.commands.RbfDeform
             int successCount = 0;
             int failCount = 0;
 
+            List<(GeometryBase geom, ObjectAttributes attr, ObjRef objRef)> workItems
+               = new List<(GeometryBase, ObjectAttributes, ObjRef)>();
+
+            foreach (var objRef in _objRefs)
+            {
+                var geom = objRef.Geometry();
+                if (geom == null) continue;
+
+                geom = geom.Duplicate();
+
+                if (geom.ObjectType == ObjectType.Extrusion)
+                    geom = ((Extrusion)geom).ToBrep();
+
+                var attr = objRef.Object().Attributes.Duplicate();
+
+                workItems.Add((geom, attr, objRef));
+            }
+
             Parallel.ForEach(
-                _objRefs,
+                workItems,
 
                 // 每线程初始化
                 () => new List<MorphedGeom>(8),
 
                 // 并行处理
-                (objRef, loopState, localList) =>
+                (item, loopState, localList) =>
                 {
                     try
                     {
-                        GeometryBase geom = objRef.Geometry();
+                        var geom = item.geom;
                         if (geom == null)
                             return localList;
-
-                        geom = geom.Duplicate();
 
                         if (geom.ObjectType == Rhino.DocObjects.ObjectType.Extrusion)
                         {
@@ -184,14 +200,14 @@ namespace MyChangeTools.commands.RbfDeform
                                 localList.Add(new MorphedGeom
                                 {
                                     GeometryBases = new[] { geom },
-                                    Attributes = objRef.Object().Attributes.Duplicate()
+                                    Attributes = item.attr
                                 });
 
                                 Interlocked.Increment(ref successCount);
                             }
                             else
                             {
-                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
                                 Interlocked.Increment(ref failCount);
                             }
                         }
@@ -204,13 +220,13 @@ namespace MyChangeTools.commands.RbfDeform
                                 localList.Add(new MorphedGeom
                                 {
                                     GeometryBases = newGeoms,
-                                    Attributes = objRef.Object().Attributes.Duplicate()
+                                    Attributes = item.attr
                                 });
                                 Interlocked.Increment(ref successCount);
                             }
                             else
                             {
-                                lock (mergeLock) failProcessObjRefs.Add(objRef);
+                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
                                 Interlocked.Increment(ref failCount);
 
                             }

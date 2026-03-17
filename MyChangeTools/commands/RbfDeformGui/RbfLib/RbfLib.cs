@@ -6,16 +6,13 @@ using System.Collections.Generic;
 using System.Linq;
 namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 {
-    public static class RBFPhiFunctionsWithNoRadius
+    public static class RBFPhiFunctions
     {
         public static double TPS(double r)
         {
             if (r < 1e-10) return 0.0;
             return r * r * Math.Log(r);
         }
-    }
-    public static class RBFPhiFunctionsWithRadius
-    {
         public static double CSRBFW2(double r, double R)
         {
             double rho = r / R;
@@ -45,7 +42,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
         public RBFDeformer(List<Point3d> sourcePoints, List<Vector3d> deltas)
         {
             // 默认 Phi = 原始 RBF
-            Phi = RBFPhiFunctionsWithNoRadius.TPS;
+            Phi = RBFPhiFunctions.TPS;
 
             // 验证输入
             if (sourcePoints == null)
@@ -244,13 +241,6 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
             {
                 double dist = sourcePts[i].DistanceTo(sourcePts[j]);
                 double val = Phi(dist);
-                //// 打印一些代表性元素
-                // #if DEBUG
-                // if ((i == 0 && j <= 3) || (i == j && j < 3) || (i == n - 1 && j == n - 1))
-                // {
-                //    RhinoApp.WriteLine($"A[{i},{j}] = Phi({dist:F4}) = {val:F8}");
-                // }
-                // #endif
                 return val;
             });
 
@@ -263,10 +253,6 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
             {
                 A[i, i] += lambda;
             }
-
-            // 打印几个对角线元素看看加了lambda后的变化
-            //RhinoApp.WriteLine($"A[0,0] (加lambda后) = {A[0, 0]:F8}");
-            //if (n > 1) RhinoApp.WriteLine($"A[1,1] (加lambda后) = {A[1, 1]:F8}");
 
             var bx = DenseVector.OfEnumerable(deltas.Select(d => d.X));
             var by = DenseVector.OfEnumerable(deltas.Select(d => d.Y));

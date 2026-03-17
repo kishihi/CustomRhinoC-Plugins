@@ -26,17 +26,19 @@ namespace MyChangeTools
         // loading and shut down, add options pages to the Rhino _Option command
         // and maintain plug-in wide options in a document.
 
-        // protected override Rhino.PlugIns.LoadReturnCode OnLoad(ref string errorMessage)
-        // {
+        protected override Rhino.PlugIns.LoadReturnCode OnLoad(ref string errorMessage)
+        {
 
-        //     //注册 Panel 必须在 PlugIn 的 OnLoad 里注册
-        //     // 注册 Dock Panel
-        //     Panels.RegisterPanel(this, typeof(HelloPlugin.HelloPanel), "HelloPanel", null);
-        //     // Panels.RegisterPanel(this, typeof(MyPanel1), "工具 1", null);
-        //     // Panels.RegisterPanel(this, typeof(MyPanel2), "工具 2", null);
-        //     // Panels.RegisterPanel(this, typeof<MyPanel3>, "工具 3", null);
-        //     return Rhino.PlugIns.LoadReturnCode.Success;
-        // }
+            //注册 Panel 必须在 PlugIn 的 OnLoad 里注册
+            // 注册 Dock Panel
+            // Panels.RegisterPanel(this, typeof(HelloPlugin.HelloPanel), "HelloPanel", null);
+            // Panels.RegisterPanel(this, typeof(MyPanel1), "工具 1", null);
+            // Panels.RegisterPanel(this, typeof(MyPanel2), "工具 2", null);
+            // Panels.RegisterPanel(this, typeof<MyPanel3>, "工具 3", null);
+
+            Panels.RegisterPanel(this, typeof(commands.RbfDeformGui.RbfDeformPanel), "RbfDeform", null);
+            return Rhino.PlugIns.LoadReturnCode.Success;
+        }
 
 
     }
