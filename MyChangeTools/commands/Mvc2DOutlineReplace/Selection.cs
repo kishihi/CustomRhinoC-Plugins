@@ -148,7 +148,7 @@ namespace MyChangeTools.commands.Mvc2DOutlineReplace
         }
 
 
-        public static Result SelectOneGeom(RhinoDoc doc, string prompt, out ObjRef objRef, Rhino.DocObjects.ObjectType type)
+        public static Result SelectOneGeom(RhinoDoc doc, string prompt, out ObjRef objRef, ObjectType type)
         {
             objRef = null;
             var rc = RhinoGet.GetOneObject(prompt, false, type, out objRef);

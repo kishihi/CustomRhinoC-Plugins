@@ -38,6 +38,12 @@ namespace MyChangeTools.commands.FlowAlongMesh
         }
     }
 
+    internal class MorphedGeom
+    {
+        public GeometryBase[] GeometryBases { get; set; }
+        public ObjectAttributes Attributes { get; set; }
+    }
+
     public class GeometryProcessor
     {
         private readonly RhinoDoc _doc;
@@ -75,17 +81,21 @@ namespace MyChangeTools.commands.FlowAlongMesh
             _limitNormalVector = limitNormalVector;
             _Tolerance = selectionOptions.Tolerance;
 
+
+            Func<Point3d, Point3d> LastProcessPoint = pt =>
+            {
+                var newpt = ProcessPoint(pt);
+                if (newpt == Point3d.Unset)
+                    _failMorphPointCount++;
+                else
+                    _successMorphPointCount++;
+                return ProcessPoint(pt);
+            };
+
             if (!selectionOptions.UseCustomMorph)
             {
-                _morph = new MyPointFieldMorph(pt =>
-                {
-                    var newpt = ProcessPoint(pt);
-                    if (newpt == Point3d.Unset)
-                        _failMorphPointCount++;
-                    else
-                        _successMorphPointCount++;
-                    return ProcessPoint(pt);
-                },
+                _morph = new MyPointFieldMorph(
+                LastProcessPoint,
                 selectionOptions.Tolerance,
                 selectionOptions.PreserveStructure,
                 selectionOptions.QuickPreview
@@ -96,15 +106,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
             {
                 _myGeomMorph = new Mylib.MyGeomMorph(
                     doc,
-                    pt =>
-                    {
-                        var newpt = ProcessPoint(pt);
-                        if (newpt == Point3d.Unset)
-                            _failMorphPointCount++;
-                        else
-                            _successMorphPointCount++;
-                        return ProcessPoint(pt);
-                    },
+                    LastProcessPoint,
                     selectionOptions.Tolerance,
                     selectionOptions.RebuildFaceUCount,
                     selectionOptions.RebuildFaceVCount,
@@ -223,7 +225,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
             //计时开始
             var sw = Stopwatch.StartNew();
 
-            List<GeometryBase> successProcessObjs = new List<GeometryBase>();
+            List<MorphedGeom> successProcessObjs = new List<MorphedGeom>();
             List<ObjRef> failProcessObjRefs = new List<ObjRef>();
 
             object mergeLock = new object();
@@ -235,7 +237,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
                 _objRefs,
 
                 // 每线程初始化
-                () => new List<GeometryBase>(8),
+                () => new List<MorphedGeom>(8),
 
                 // 并行处理
                 (objRef, loopState, localList) =>
@@ -262,12 +264,16 @@ namespace MyChangeTools.commands.FlowAlongMesh
                             geom = bo as GeometryBase;
                         }
 
-                        //直接morph尝试变换
+                        //默认使用Rhino自带的变形方法
                         if (!_useCustomMorph)
                         {
                             if (_morph.Morph(geom))
                             {
-                                localList.Add(geom);
+                                localList.Add(new MorphedGeom
+                                {
+                                    GeometryBases = new[] { geom },
+                                    Attributes = objRef.Object().Attributes.Duplicate()
+                                });
                                 Interlocked.Increment(ref successCount);
                             }
                             else
@@ -281,7 +287,11 @@ namespace MyChangeTools.commands.FlowAlongMesh
                             var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
                             if (morphed)
                             {
-                                localList.AddRange(newGeoms);
+                                localList.Add(new MorphedGeom
+                                {
+                                    GeometryBases = newGeoms,
+                                    Attributes = objRef.Object().Attributes.Duplicate()
+                                });
                                 Interlocked.Increment(ref successCount);
                             }
                             else
@@ -314,13 +324,17 @@ namespace MyChangeTools.commands.FlowAlongMesh
             {
                 List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
 
-                foreach (GeometryBase g in successProcessObjs)
+                foreach (var mg in successProcessObjs)
                 {
+                    foreach (var g in mg.GeometryBases)
+                    {   
 
-                    Guid id = _doc.Objects.Add(g);
+                        //添加对象同时把属性加过去
+                        Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
 
-                    if (id != Guid.Empty)
-                        newIds.Add(id);
+                        if (id != Guid.Empty)
+                            newIds.Add(id);
+                    }
                 }
 
                 // 选中新对象

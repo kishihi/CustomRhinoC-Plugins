@@ -91,10 +91,10 @@ namespace MyChangeTools.commands.RbfDeform
         public bool IsCopy { get; set; } = false;
 
         [Option("线性系统")]
-        public bool LinearSystem { get; set; } = false;
+        public bool RBFAddLinearSystem { get; set; } = false;
 
         [Option("基准和目标曲线采样点以参数匹配")]
-        public bool SampleByParameter { get; set; } = false;
+        public bool CurveSampleByParameter { get; set; } = false;
 
         [Option("网格点以网格坐标系匹配")]
         public bool MatchMeshByCoordinate { get; set; } = true;
@@ -103,7 +103,7 @@ namespace MyChangeTools.commands.RbfDeform
         public double InfectRadius { get; set; } = 0; // 0 代表不限制影响范围 
 
         [Option("在曲线上的采样点距离")]
-        public double SampleDistance { get; set; } = 1.0;
+        public double CurveSampleDistance { get; set; } = 1.0;
 
         [Option("Tolerance")]
         public double Tolerance { get; set; } = 0.01;
@@ -177,7 +177,7 @@ namespace MyChangeTools.commands.RbfDeform
         }
 
 
-        public static Result SelectOneGeom(RhinoDoc doc, string prompt, out ObjRef objRef, Rhino.DocObjects.ObjectType type)
+        public static Result SelectOneGeom(RhinoDoc doc, string prompt, out ObjRef objRef, ObjectType type)
         {
             objRef = null;
             var rc = RhinoGet.GetOneObject(prompt, false, type, out objRef);

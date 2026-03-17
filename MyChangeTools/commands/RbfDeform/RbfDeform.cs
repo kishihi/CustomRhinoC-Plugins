@@ -24,20 +24,19 @@ namespace MyChangeTools.commands.RbfDeform
             var rc = Selection.SelectGeometries(doc, "Select geoms to flow", ObjectType.AnyObject, out ObjRef[] objRefs);
             if (rc != Result.Success) return Result.Failure;
 
+            var limitedtypes = ObjectType.Curve | ObjectType.Mesh | ObjectType.Point | ObjectType.Surface;
 
-            var limitedtypes = ObjectType.Curve | ObjectType.Mesh | ObjectType.Point;
-
-            rc = Selection.SelectGeometries(doc, "Select base Curves , Meshs, Points",
+            rc = Selection.SelectGeometries(doc, "Select base Curves, Meshs, Points, NurbsSurfaces, the order and type and amount must correspond with targetObjs",
                 limitedtypes, out ObjRef[] baseObjRfs);
             if (rc != Result.Success) return Result.Failure;
 
             rc = Selection.SelectGeometries
-                (doc, "Select target Curves , Meshs, Points, the order and amount must correspond with baseObjs",
+                (doc, "Select target Curves, Meshs, Points, NurbsSurfaces, the order and type and amount must correspond with baseObjs",
                 limitedtypes, out ObjRef[] targetObjRfs);
             if (rc != Result.Success) return Result.Failure;
 
             rc = Selection.SelectGeometries
-                (doc, "Select limmited Curves , Meshs, Points, Enter means no limmited", 
+                (doc, "Select limmited Curves , Meshs, Points, Enter means no limmited",
                 limitedtypes, out ObjRef[] limitedObjRfs);
             if (rc != Result.Success)
                 limitedObjRfs = new ObjRef[0];
