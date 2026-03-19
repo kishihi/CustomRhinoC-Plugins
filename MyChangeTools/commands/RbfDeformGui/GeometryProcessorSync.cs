@@ -42,11 +42,14 @@ namespace MyChangeTools.commands.RbfDeformGui
             _deform = new RBFLib.Deform(baseObjRfs, targetObjRfs, limitedObjRfs, _configs);
 
             // 预先单位化向量（避免百万次Unitize）
-            for (int i = 0; i < _moveVectors.Count; i++)
+            if(_moveVectors!=null && _moveVectors.Count > 0)
             {
-                var v = _moveVectors[i];
-                v.Unitize();
-                _moveVectors[i] = v;
+                for (int i = 0; i < _moveVectors.Count; i++)
+                {
+                    var v = _moveVectors[i];
+                    v.Unitize();
+                    _moveVectors[i] = v;
+                }
             }
 
             Func<Point3d, Point3d> processPoint = pt =>
@@ -62,7 +65,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                     _successMorphPointCount++;
                 }
                 //把最终的移动限制在几个向量方向上；
-                if (_moveVectors.Count > 0)
+                if (_moveVectors != null &&_moveVectors.Count > 0)
                 {
                     var delta = newpt - pt;
                     var resultDelta = Vector3d.Zero;
@@ -76,7 +79,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                 return newpt;
             };
 
-
+            _useCustomMorph = _configs.UseCustomMorph;
             // use custommorph
             if (_configs.UseCustomMorph)
             {
@@ -89,7 +92,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                     _configs.MyGeomMorphConfig.RebuildCurveCount,
                     _configs.MyGeomMorphConfig.ShrinkSurfaceToEdge
                 );
-                _useCustomMorph = true;
+                //_useCustomMorph = true;
             }
             else
             {
@@ -99,17 +102,17 @@ namespace MyChangeTools.commands.RbfDeformGui
                     _configs.SpaceMorphConfig.PreserveStructure,
                     _configs.SpaceMorphConfig.QuickPreview
                 );
-                _useCustomMorph = false;
+                //_useCustomMorph = false;
             }
 
             _IsCopy = _configs.IsCopy;
         }
 
-        public Result ProcessSync()
+        public List<MorphedGeom> ProcessSync()
         {
 
             //计时开始
-            var sw = Stopwatch.StartNew();
+            //var sw = Stopwatch.StartNew();
 
 
             List<MorphedGeom> successProcessObjs = new List<MorphedGeom>();
@@ -196,53 +199,55 @@ namespace MyChangeTools.commands.RbfDeformGui
                 }
             }
 
-            List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
+            return successProcessObjs;
 
-            foreach (var mg in successProcessObjs)
-            {
-                foreach (var g in mg.GeometryBases)
-                {
+            //List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
 
-                    //添加对象同时把属性加过去
-                    Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
+            //foreach (var mg in successProcessObjs)
+            //{
+            //    foreach (var g in mg.GeometryBases)
+            //    {
 
-                    if (id != Guid.Empty)
-                        newIds.Add(id);
-                }
-            }
+            //        //添加对象同时把属性加过去
+            //        Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
 
-            // 选中新对象
-            foreach (Guid id in newIds)
-                _doc.Objects.Select(id);
+            //        if (id != Guid.Empty)
+            //            newIds.Add(id);
+            //    }
+            //}
 
-            // 删除旧对象
-            if (!_IsCopy)
-            {
-                HashSet<Guid> failSet = new HashSet<Guid>();
+            //// 选中新对象
+            //foreach (Guid id in newIds)
+            //    _doc.Objects.Select(id);
 
-                foreach (ObjRef fo in failProcessObjRefs)
-                    failSet.Add(fo.ObjectId);
+            //// 删除旧对象
+            //if (!_IsCopy)
+            //{
+            //    HashSet<Guid> failSet = new HashSet<Guid>();
 
-                foreach (ObjRef ob in _objRefs)
-                {
-                    // 失败的对象不删除，保留在场景中以供用户查看
-                    if (!failSet.Contains(ob.ObjectId))
-                        _doc.Objects.Delete(ob.ObjectId, true);
-                }
-            }
+            //    foreach (ObjRef fo in failProcessObjRefs)
+            //        failSet.Add(fo.ObjectId);
 
-            foreach (ObjRef fo in failProcessObjRefs)
-                _doc.Objects.Select(fo.ObjectId);
+            //    foreach (ObjRef ob in _objRefs)
+            //    {
+            //        // 失败的对象不删除，保留在场景中以供用户查看
+            //        if (!failSet.Contains(ob.ObjectId))
+            //            _doc.Objects.Delete(ob.ObjectId, true);
+            //    }
+            //}
 
-            sw.Stop();
+            //foreach (ObjRef fo in failProcessObjRefs)
+            //    _doc.Objects.Select(fo.ObjectId);
+
+            //sw.Stop();
 
 
-            RhinoApp.WriteLine("成功: " + successCount);
-            RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
-            RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
-            RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
+            //RhinoApp.WriteLine("成功: " + successCount);
+            //RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
+            //RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
+            //RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
 
-            return Result.Success;
+            //return Result.Success;
         }
 
 

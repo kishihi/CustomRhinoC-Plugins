@@ -23,6 +23,12 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
             double t = 1 - rho;
             return t * t * t * t * (4 * rho + 1);
         }
+
+        public static double GAUSS(double r, double R)
+        {
+            double t = r / R;
+            return Math.Exp(-t * t);
+        }
     }
 
     //抽象类

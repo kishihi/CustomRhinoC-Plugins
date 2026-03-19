@@ -82,7 +82,7 @@ namespace MyChangeTools.commands.RbfDeformGui
         private static Config CreateDefault()
         {
             return new Config
-            {   
+            {
                 Doc = RhinoDoc.ActiveDoc,
                 Tolerance = 0.01,
                 IsCopy = false,
@@ -91,6 +91,8 @@ namespace MyChangeTools.commands.RbfDeformGui
                 BaseObjRfs = new ObjRef[0],
                 TargetObjRfs = new ObjRef[0],
                 LimitedObjRfs = new ObjRef[0],
+
+                MoveVectors = new List<Vector3d>(),
 
                 SpaceMorphConfig = new SpaceMorphConfig
                 {

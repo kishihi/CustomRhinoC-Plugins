@@ -47,9 +47,18 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
 
                 if (selectionOptions.InfectRadius > 0)
                 {
-                    RhinoApp.WriteLine($"使用CSRBFW2，影响半径 R = {selectionOptions.InfectRadius}");
+                    
                     double R = selectionOptions.InfectRadius;
-                    _rbfDeformer.Phi = r => RBFPhiFunctionsWithRadius.CSRBFW2(r, R);
+                    if (!selectionOptions.IsSoftInfectRadius)
+                    {
+                        _rbfDeformer.Phi = r => RBFPhiFunctionsWithRadius.CSRBFW2(r, R);
+                        RhinoApp.WriteLine($"使用CSRBFW2，影响半径 R = {selectionOptions.InfectRadius}");
+
+                    }
+                    else
+                    {   _rbfDeformer.Phi = r => RBFPhiFunctionsWithRadius.GAUSS(r, R);
+                        RhinoApp.WriteLine($"使用GAUSS，半径参数 R = {selectionOptions.InfectRadius}");
+                    }
                 }
 
                 _rbfDeformer.SolveWeights();

@@ -23,8 +23,6 @@ namespace MyChangeTools.commands.RbfDeformGui
         protected override Result RunCommand(RhinoDoc doc, RunMode mode)
         {
 
-            
-
             var panel_id = typeof(RbfDeformPanel).GUID;
             Panels.OpenPanel(panel_id);
 
@@ -41,7 +39,14 @@ namespace MyChangeTools.commands.RbfDeformGui
             else
                  RhinoApp.WriteLine("Fail to Open RbfDeformPanel");
 
-            doc.Views.Redraw();
+
+            var panel = Rhino.UI.Panels.GetPanel<RbfDeformPanel>(doc);
+
+            if (panel != null)
+            {
+                panel.MinimumSize = new Eto.Drawing.Size(200, 400);
+            }
+
             return Result.Success;
         }
     }

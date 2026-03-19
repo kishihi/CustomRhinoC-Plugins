@@ -2,17 +2,17 @@ using Eto.Forms;
 using Eto.Drawing;
 using Rhino;
 using Rhino.DocObjects;
-using Rhino.Geometry;
 using Rhino.Commands;
 using Rhino.Input.Custom;
-using Rhino.Input;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using System;
 
 namespace MyChangeTools.commands.RbfDeformGui
 {
-    [System.Runtime.InteropServices.Guid("f81ee8d0-ed63-485f-8d53-892e0052aef1")]
+    [System.Runtime.InteropServices.Guid("9fdd9b4a-5eee-4196-a9b0-30a4a4138240")]
     public class RbfDeformPanel : Panel
-    {   
+    {
         Label objLabel;
         Label baseLabel;
         Label targetLabel;
@@ -21,9 +21,12 @@ namespace MyChangeTools.commands.RbfDeformGui
         Config Config => ConfigManager.Current;
 
         public RbfDeformPanel(RhinoDoc doc)
-        {
-            Content = CreateLayout();
+        {   
             Config.Doc = doc;
+            Content = new Scrollable
+            {
+                Content = CreateLayout()
+            };
         }
 
         Control CreateLayout()
@@ -31,16 +34,21 @@ namespace MyChangeTools.commands.RbfDeformGui
             var layout = new DynamicLayout
             {
                 Padding = 10,
-                Spacing = new Size(5, 5)
+                Spacing = new Size(10, 10)
             };
+
+            // layout.MinimumSize = new Size(300, 400);
 
             layout.Add(CreateSelectionGroup());
             layout.Add(CreateGeneralGroup());
+            layout.Add(CreateSpaceMorphGroup());
+            layout.Add(CreateMyGeomMorphGroup());
+            layout.Add(CreateSampleGroup());
             layout.Add(CreateRbfGroup());
-
-            layout.Add(CreateButtons());
+            layout.Add(CreateProcessButtons());
 
             layout.Add(null);
+
 
             return new Scrollable { Content = layout };
         }
@@ -84,6 +92,8 @@ namespace MyChangeTools.commands.RbfDeformGui
 
         GroupBox CreateGeneralGroup()
         {
+
+            // tolerance Stepper
             var tolerance = new NumericStepper
             {
                 DecimalPlaces = 4,
@@ -96,25 +106,210 @@ namespace MyChangeTools.commands.RbfDeformGui
                 Config.Tolerance = (double)tolerance.Value;
             };
 
+            //is copy object CheckBox
             var copy = new CheckBox
             {
                 Text = "Copy Object",
                 Checked = Config.IsCopy
             };
-
             copy.CheckedChanged += (s, e) =>
             {
                 Config.IsCopy = copy.Checked ?? false;
+            };
+
+
+            // is use UseCustomMorph CheckBox
+            var useCustomMorph = new CheckBox
+            {
+                Text = "UseCustomMorph",
+                Checked = Config.UseCustomMorph
+
+            };
+            useCustomMorph.CheckedChanged += (s, e) =>
+            {
+                Config.UseCustomMorph = copy.Checked ?? false;
             };
 
             var layout = new DynamicLayout();
 
             layout.AddRow("Tolerance", tolerance);
             layout.AddRow(copy);
+            layout.AddRow(useCustomMorph);
 
             return new GroupBox
             {
                 Text = "General",
+                Content = layout
+            };
+        }
+
+        //SpaceMorphConfig
+
+
+        GroupBox CreateSpaceMorphGroup()
+        {
+            var preserveStructure = new CheckBox
+            {
+                Text = "Preserve Structure",
+                Checked = Config.SpaceMorphConfig.PreserveStructure
+            };
+
+            preserveStructure.CheckedChanged += (s, e) =>
+            {
+                Config.SpaceMorphConfig.PreserveStructure =
+                    preserveStructure.Checked ?? false;
+            };
+
+            var quickPreview = new CheckBox
+            {
+                Text = "Quick Preview",
+                Checked = Config.SpaceMorphConfig.QuickPreview
+            };
+
+            quickPreview.CheckedChanged += (s, e) =>
+            {
+                Config.SpaceMorphConfig.QuickPreview =
+                    quickPreview.Checked ?? false;
+            };
+
+            var layout = new DynamicLayout
+            {
+                Spacing = new Size(5, 5)
+            };
+
+            layout.AddRow(preserveStructure);
+            layout.AddRow(quickPreview);
+
+            return new GroupBox
+            {
+                Text = "Space Morph",
+                Content = layout
+            };
+        }
+
+        GroupBox CreateMyGeomMorphGroup()
+        {
+            var shrinkSurface = new CheckBox
+            {
+                Text = "Shrink Surface To Edge",
+                Checked = Config.MyGeomMorphConfig.ShrinkSurfaceToEdge
+            };
+
+            shrinkSurface.CheckedChanged += (s, e) =>
+            {
+                Config.MyGeomMorphConfig.ShrinkSurfaceToEdge =
+                    shrinkSurface.Checked ?? false;
+            };
+
+            var rebuildU = new NumericStepper
+            {
+                MinValue = 0,
+                MaxValue = 1000,
+                Value = Config.MyGeomMorphConfig.RebuildFaceUCount
+            };
+
+            rebuildU.ValueChanged += (s, e) =>
+            {
+                Config.MyGeomMorphConfig.RebuildFaceUCount =
+                    (int)rebuildU.Value;
+            };
+
+            var rebuildV = new NumericStepper
+            {
+                MinValue = 0,
+                MaxValue = 1000,
+                Value = Config.MyGeomMorphConfig.RebuildFaceVCount
+            };
+
+            rebuildV.ValueChanged += (s, e) =>
+            {
+                Config.MyGeomMorphConfig.RebuildFaceVCount =
+                    (int)rebuildV.Value;
+            };
+
+            var rebuildCurve = new NumericStepper
+            {
+                MinValue = 0,
+                MaxValue = 1000,
+                Value = Config.MyGeomMorphConfig.RebuildCurveCount
+            };
+
+            rebuildCurve.ValueChanged += (s, e) =>
+            {
+                Config.MyGeomMorphConfig.RebuildCurveCount =
+                    (int)rebuildCurve.Value;
+            };
+
+            var layout = new DynamicLayout
+            {
+                Spacing = new Size(5, 5)
+            };
+
+            layout.AddRow(shrinkSurface);
+            layout.AddRow("Rebuild Surface U", rebuildU);
+            layout.AddRow("Rebuild Surface V", rebuildV);
+            layout.AddRow("Rebuild Curve", rebuildCurve);
+
+            return new GroupBox
+            {
+                Text = "My Geom Morph",
+                Content = layout
+            };
+        }
+
+        GroupBox CreateSampleGroup()
+        {
+            var curveByParam = new CheckBox
+            {
+                Text = "Curve Sample By Parameter",
+                Checked = Config.SampleConfig.CurveSampleByParameter
+            };
+
+            curveByParam.CheckedChanged += (s, e) =>
+            {
+                Config.SampleConfig.CurveSampleByParameter =
+                    curveByParam.Checked ?? false;
+            };
+
+            var matchMesh = new CheckBox
+            {
+                Text = "Match Mesh By Coordinate",
+                Checked = Config.SampleConfig.MatchMeshByCoordinate
+            };
+
+            matchMesh.CheckedChanged += (s, e) =>
+            {
+                Config.SampleConfig.MatchMeshByCoordinate =
+                    matchMesh.Checked ?? false;
+            };
+
+            var sampleDistance = new NumericStepper
+            {
+                DecimalPlaces = 2,
+                Increment = 0.1,
+                MinValue = 0,
+                MaxValue = 10000,
+                Value = Config.SampleConfig.CurveSampleDistance
+            };
+
+            sampleDistance.ValueChanged += (s, e) =>
+            {
+                Config.SampleConfig.CurveSampleDistance =
+                    (double)sampleDistance.Value;
+            };
+
+            var layout = new DynamicLayout
+            {
+                Spacing = new Size(5, 5)
+            };
+
+            layout.AddRow(curveByParam);
+            layout.AddRow(matchMesh);
+            layout.AddRow("Curve Sample Distance", sampleDistance);
+
+            return new GroupBox
+            {
+                Text = "Sampling",
                 Content = layout
             };
         }
@@ -171,7 +366,7 @@ namespace MyChangeTools.commands.RbfDeformGui
             };
         }
 
-        Control CreateButtons()
+        Control CreateProcessButtons()
         {
 
             var apply = new Button { Text = "Apply" };
@@ -282,24 +477,56 @@ namespace MyChangeTools.commands.RbfDeformGui
 
         void RunDeform()
         {
-            RhinoApp.WriteLine("Apply deformation...");
-            var processor = new GeometryProcessorSync(Config.Doc,
-            Config.ObjRfs,
-            Config.BaseObjRfs,
-            Config.TargetObjRfs,
-            Config.LimitedObjRfs,
-            Config.MoveVectors,
-            Config);
-            var rc = processor.ProcessSync();
-            // if (rc != Result.Success)
-            // {
-            //     //弹出错误窗口
-            //     MessageBox.Show(
-            //     "Deformation failed. Please check the input and try again.",
-            //     "Error",
-            //     MessageBoxButtons.OK,
-            //     MessageBoxType.Error);
-            // }
+            // 2. 启动后台任务
+            Task.Run(() =>
+            {
+                var processor = new GeometryProcessorSync(
+                    Config.Doc,
+                    Config.ObjRfs,
+                    Config.BaseObjRfs,
+                    Config.TargetObjRfs,
+                    Config.LimitedObjRfs,
+                    Config.MoveVectors,
+                    Config);
+                return processor.ProcessSync();
+            })
+            // 3. 指定回到主线程执行后续操作
+            .ContinueWith(task =>
+            {
+                if (task.IsFaulted)
+                {
+                    // 主线程处理异常
+                    // MessageBox.Show($"错误：{task.Exception?.InnerException?.Message}");
+                    return;
+                }
+
+                // 主线程处理 smgs 结果
+                List<MorphedGeom> smgs = task.Result;
+                ProcessSmgsInMainThread(smgs);
+
+                // 恢复UI
+                // btnProcess.IsEnabled = true;
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        void ProcessSmgsInMainThread(List<MorphedGeom> smgs)
+        {
+            List<Guid> newIds = new List<Guid>(smgs.Count);
+
+            foreach (var mg in smgs)
+            {
+                foreach (var g in mg.GeometryBases)
+                {
+
+                    //添加对象同时把属性加过去
+                    Guid id = Config.Doc.Objects.Add(g, mg.Attributes.Duplicate());
+
+                    if (id != Guid.Empty)
+                        newIds.Add(id);
+                }
+            }
+
+            Config.Doc.Views.Redraw();
         }
     }
 }

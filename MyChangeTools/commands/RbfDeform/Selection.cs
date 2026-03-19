@@ -102,6 +102,10 @@ namespace MyChangeTools.commands.RbfDeform
         [Option("采样点影响半径")]
         public double InfectRadius { get; set; } = 0; // 0 代表不限制影响范围 
 
+        [Option("非严格影响半径")]
+        public bool IsSoftInfectRadius { get; set; } = false; //
+
+
         [Option("在曲线上的采样点距离")]
         public double CurveSampleDistance { get; set; } = 1.0;
 
