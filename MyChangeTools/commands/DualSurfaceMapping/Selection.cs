@@ -86,14 +86,30 @@ namespace MyChangeTools.commands.DualSurfaceMapping
 
         [Option("快速预览")]
         public bool QuickPreview { get; set; } = true;
-        [Option("ShowLogObj")]
-        public bool ShowLogObj { get; set; } = false;
 
-        [Option("整体处理Brep")]
-        public bool IsProcessBrepTogeTher { get; set; } = false;
+        [Option("Tolerance")]
+        public double Tolerance { get; set; } = 0.01;
 
         [Option("复制对象")]
         public bool IsCopy { get; set; } = false;
+
+        [Option("B2作为法向基面")]
+        public bool IsB2NormalBase { get; set; } = true;
+
+        [Option("UseMyGeomMorph")]
+        public bool UseCustomMorph { get; set; } = false;
+
+        [Option("MyGeomMorphShrinkSurfaceToEdge")]
+        public bool ShrinkSurfaceToEdge { get; set; } = false;
+
+        [Option("MyGeomMorphRebuildFU")]
+        public int RebuildFaceUCount { get; set; } = 0;
+
+        [Option("MyGeomMorphRebuildFV")]
+        public int RebuildFaceVCount { get; set; } = 0;
+
+        [Option("MyGeomMorphRebuildCT")]
+        public int RebuildCurveCount { get; set; } = 0;
     }
 
     public class Selection

@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-// using MyChangeTools.commands.RbfDeform;
 
 namespace MyChangeTools.commands.RbfDeformGui
 {
@@ -48,7 +47,6 @@ namespace MyChangeTools.commands.RbfDeformGui
         private readonly RBFLib.Deform _deform;
         private readonly List<Vector3d> _moveVectors;
         private readonly double _Tolerance;
-        private readonly bool _IsCopy;
         private readonly MyPointFieldMorph _morph;
         private readonly RhinoDoc _doc;
         private readonly ObjRef[] _objRefs;
@@ -58,6 +56,7 @@ namespace MyChangeTools.commands.RbfDeformGui
         private readonly Mylib.MyGeomMorph _myGeomMorph;
 
         private readonly bool _useCustomMorph = false;
+        
 
 
         public GeometryProcessor(
@@ -79,8 +78,11 @@ namespace MyChangeTools.commands.RbfDeformGui
             for (int i = 0; i < _moveVectors.Count; i++)
             {
                 var v = _moveVectors[i];
-                v.Unitize();
-                _moveVectors[i] = v;
+                if (v != Vector3d.Unset && v.IsValid)
+                {
+                    v.Unitize();
+                    _moveVectors[i] = v;
+                }
             }
 
             Func<Point3d, Point3d> processPoint = pt =>
@@ -106,6 +108,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                     {
                         Vector3d mv = Vector3d.Multiply(delta, v) * v;
                         resultDelta += mv;
+                        
                     }
                     newpt = pt + resultDelta;
                 }
@@ -114,7 +117,7 @@ namespace MyChangeTools.commands.RbfDeformGui
 
 
             // use custommorph
-            if (_configs.UseCustomMorph)
+            if (_configs.IsUseCustomMorph)
             {
                 _myGeomMorph = new Mylib.MyGeomMorph(
                     doc,
@@ -138,10 +141,9 @@ namespace MyChangeTools.commands.RbfDeformGui
                 _useCustomMorph = false;
             }
 
-            _IsCopy = _configs.IsCopy;
         }
 
-        public Result Process()
+        public (List<MorphedGeom>,List<ObjRef>) Process(CancellationToken token)
         {
 
             //计时开始
@@ -183,6 +185,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                 // 并行处理
                 (item, loopState, localList) =>
                 {
+                    token.ThrowIfCancellationRequested();
                     try
                     {
                         var geom = item.geom;
@@ -252,66 +255,16 @@ namespace MyChangeTools.commands.RbfDeformGui
                         successProcessObjs.AddRange(localList);
                 });
 
-            // ================= UI线程 =================
-
-            // RhinoApp.InvokeOnUiThread((Action)(() =>
-            // {
-
-            // _doc.Views.RedrawEnabled = false;
-            List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
-
-            foreach (var mg in successProcessObjs)
-            {
-                foreach (var g in mg.GeometryBases)
-                {
-
-                    //添加对象同时把属性加过去
-                    Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
-
-                    if (id != Guid.Empty)
-                        newIds.Add(id);
-                }
-            }
-
-            // 选中新对象
-            foreach (Guid id in newIds)
-                _doc.Objects.Select(id);
-
-            // 删除旧对象
-            if (!_IsCopy)
-            {
-                HashSet<Guid> failSet = new HashSet<Guid>();
-
-                foreach (ObjRef fo in failProcessObjRefs)
-                    failSet.Add(fo.ObjectId);
-
-                foreach (ObjRef ob in _objRefs)
-                {
-                    // 失败的对象不删除，保留在场景中以供用户查看
-                    if (!failSet.Contains(ob.ObjectId))
-                        _doc.Objects.Delete(ob.ObjectId, true);
-                }
-            }
-
-            foreach (ObjRef fo in failProcessObjRefs)
-                _doc.Objects.Select(fo.ObjectId);
-
             sw.Stop();
-
 
             RhinoApp.WriteLine("成功: " + successCount);
             RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
             RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
             RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
 
+            
+            return (successProcessObjs,failProcessObjRefs);
 
-            // _doc.Views.RedrawEnabled = true;
-            // _doc.Views.Redraw();
-
-
-            // }));
-
-            return Result.Success;
         }
 
 

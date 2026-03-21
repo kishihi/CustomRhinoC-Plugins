@@ -13,11 +13,11 @@ using System.Threading.Tasks;
 namespace MyChangeTools.commands.DualSurfaceMapping
 {
 
-    public class MyPointFieldMorph : SpaceMorph
+    class MyPointFieldMorph : SpaceMorph
     {
-        private readonly Func<Point3d, (bool ok, Point3d newPt)> _processPointFunc;
+        private readonly Func<Point3d, Point3d> _processPointFunc;
 
-        public MyPointFieldMorph(Func<Point3d, (bool ok, Point3d newPt)> processPointFunc, double tolerance, bool preserveStructure, bool quickPreview)
+        public MyPointFieldMorph(Func<Point3d, Point3d> processPointFunc, double tolerance, bool preserveStructure, bool quickPreview)
         {
             _processPointFunc = processPointFunc;
             PreserveStructure = preserveStructure;
@@ -29,15 +29,22 @@ namespace MyChangeTools.commands.DualSurfaceMapping
         {
             try
             {
-                var (ok, newPt) = _processPointFunc(point);
-                return ok ? newPt : point;
+                var newPt = _processPointFunc(point);
+                return newPt;
             }
             catch
             {
-                return point;
+                return Point3d.Unset; //如果变换过程中发生异常，也返回Unset
             }
         }
     }
+
+    internal class MorphedGeom
+    {
+        public GeometryBase[] GeometryBases { get; set; }
+        public ObjectAttributes Attributes { get; set; }
+    }
+
 
     public class GeometryProcessor
     {
@@ -52,22 +59,24 @@ namespace MyChangeTools.commands.DualSurfaceMapping
         private readonly Brep _BrepB2;
         private readonly Vector3d _projectionDirection; //投影方向
 
-        //固定
-        private readonly double _ModelTolerance;
-        private readonly ConcurrentQueue<string> _logMessages = new ConcurrentQueue<string>(); // ✅ 全局日志队列
-        private readonly ConcurrentQueue<GeometryBase> _logObjs = new ConcurrentQueue<GeometryBase>(); // ✅ 全局临时对象队列
-        private readonly bool __ShowLogObj;
-
-        // 构建 Morph 对象
-        private readonly MyPointFieldMorph _morph;
-        private readonly bool _PreserveStructure;
-        private readonly bool _IsProcessBrepTogeTher;
+        private long _failMorphPointCount;
+        private long _successMorphPointCount;
+        private readonly Mylib.MyGeomMorph _myGeomMorph;
+        private readonly bool _useCustomMorph = false;
         private readonly bool _IsCopy;
-        private int _failTranPointCount = 0;
+        private readonly MyPointFieldMorph _morph;
 
-        private delegate Result ProcessBrepHandler(Brep brep, out List<Brep> newBreps);
+        private readonly double _Tolerance;
 
-        public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Brep BrepA1, Brep BrepA2, Brep BrepB1, Brep BrepB2, Vector3d projectionDirection, SelectionOptions options)
+        public GeometryProcessor(
+            RhinoDoc doc, 
+            ObjRef[] objRefs, 
+            Brep BrepA1, 
+            Brep BrepA2, 
+            Brep BrepB1, 
+            Brep BrepB2, 
+            Vector3d projectionDirection, 
+            SelectionOptions selectionOptions)
         {
             _doc = doc;
             _objRefs = objRefs;
@@ -76,209 +85,238 @@ namespace MyChangeTools.commands.DualSurfaceMapping
             _BrepA2 = BrepA2;
             _BrepB1 = BrepB1;
             _BrepB2 = BrepB2;
+            _Tolerance=selectionOptions.Tolerance;
 
-            _ModelTolerance = _doc?.ModelAbsoluteTolerance ?? RhinoDoc.ActiveDoc.ModelAbsoluteTolerance;
-
-
-            //是否展示LogObj
-            __ShowLogObj = options.ShowLogObj;
-
-
-            _morph = new MyPointFieldMorph(pt =>
+            Func<Point3d, Point3d> processPoint = pt =>
             {
-                var ok = ProcessPoint(pt, out var newPt);
+                bool ok = false;
+                Point3d newpt = Point3d.Unset;
+                if(selectionOptions.IsB2NormalBase)
+                    ok = ProcessPointAtB2NormalBase(pt, out newpt);
+                else
+                    ok = ProcessPointAtOneVector(pt, out newpt);
                 if (!ok)
                 {
-                    _failTranPointCount++;
-                    _logObjs.Enqueue(new Point(pt));
+                    _failMorphPointCount++;
 
                 }
-                return (ok, newPt);
-            },
-            _ModelTolerance,
-            options.PreserveStructure,
-            options.QuickPreview
-            );
-            _PreserveStructure = options.PreserveStructure;
-            _IsProcessBrepTogeTher = options.IsProcessBrepTogeTher;
+                else
+                {
+                    _successMorphPointCount++;
+                }
+                return newpt;
+            };
 
-            _IsCopy = options.IsCopy;
+
+            // use custommorph
+            if (selectionOptions.UseCustomMorph)
+            {
+                _myGeomMorph = new Mylib.MyGeomMorph(
+                    doc,
+                    processPoint,
+                    selectionOptions.Tolerance,
+                    selectionOptions.RebuildFaceUCount,
+                    selectionOptions.RebuildFaceVCount,
+                    selectionOptions.RebuildCurveCount,
+                    selectionOptions.ShrinkSurfaceToEdge
+                );
+                _useCustomMorph = true;
+            }
+            else
+            {
+                _morph = new MyPointFieldMorph(
+                    processPoint,
+                    selectionOptions.Tolerance,
+                    selectionOptions.PreserveStructure,
+                    selectionOptions.QuickPreview
+                );
+                _useCustomMorph = false;
+            }
+
+            _IsCopy = selectionOptions.IsCopy;
+
 
 
         }
+
 
         public Result Process()
         {
+
+            //计时开始
             var sw = Stopwatch.StartNew();
-            bool success = false;
-            var curvesToAdd = new ConcurrentBag<Curve>();
-            var brepsToAdd = new ConcurrentBag<Brep>();
 
-            var failObj = new ConcurrentBag<ObjRef>();
 
-            // 记录每个对象对应的群组信息
-            var objGroupMap = new Dictionary<Guid, int[]>();
+            List<MorphedGeom> successProcessObjs = new List<MorphedGeom>();
+            List<ObjRef> failProcessObjRefs = new List<ObjRef>();
+
+            object mergeLock = new object();
+
+            int successCount = 0;
+            int failCount = 0;
+
+            List<(GeometryBase geom, ObjectAttributes attr, ObjRef objRef)> workItems
+               = new List<(GeometryBase, ObjectAttributes, ObjRef)>();
+
             foreach (var objRef in _objRefs)
             {
-                var rhObj = objRef.Object();
-                if (rhObj != null)
-                {
-                    var groups = rhObj.Attributes.GetGroupList();
-                    if (groups != null && groups.Length > 0)
-                        objGroupMap[objRef.ObjectId] = groups;
-                }
+                var geom = objRef.Geometry();
+                if (geom == null) continue;
+
+                geom = geom.Duplicate();
+
+                if (geom.ObjectType == ObjectType.Extrusion)
+                    geom = ((Extrusion)geom).ToBrep();
+
+                var attr = objRef.Object().Attributes.Duplicate();
+
+                workItems.Add((geom, attr, objRef));
             }
 
+            Parallel.ForEach(
+                workItems,
 
-            int curveSuccess = 0, curveFail = 0;
-            int brepSuccess = 0, brepFail = 0;
+                // 每线程初始化
+                () => new List<MorphedGeom>(8),
 
-            Parallel.ForEach(_objRefs, objRef =>
-            {
-                var geom = objRef.Geometry();
-                if (geom == null) return;
-
-                try
+                // 并行处理
+                (item, loopState, localList) =>
                 {
-                    if (geom is Curve curve)
+                    try
                     {
-                        if (ProcessCurve(curve, out var newCurve) == Result.Success)
-                        {
-                            curvesToAdd.Add(newCurve);
-                            Interlocked.Increment(ref curveSuccess);
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref curveFail);
-                            failObj.Add(objRef);
-                        }
-                    }
-                    else if (Mylib.GeometryUtils.ToBrepSafe(geom) is Brep brep)
-                    {
-                        ProcessBrepHandler ProcessBrep;
-                        if (_IsProcessBrepTogeTher)
-                            ProcessBrep = ProcessBrepTogether; // 方法组 -> 委托转换
-                        else
-                            ProcessBrep = ProcessBrepSplit;
-                        if (ProcessBrep(brep, out var newBreps) == Result.Success)
-                        {
-                            foreach (var nb in newBreps)
-                                brepsToAdd.Add(nb);
-                            Interlocked.Increment(ref brepSuccess);
-                        }
-                        else
-                        {
-                            Interlocked.Increment(ref brepFail);
-                            failObj.Add(objRef);
-                        }
-                    }
-                    else
-                    {
-                        _logMessages.Enqueue($"不支持的几何类型: {geom.ObjectType}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logMessages.Enqueue($"对象处理出错: {ex.Message}");
-                }
-            });
+                        var geom = item.geom;
+                        if (geom == null)
+                            return localList;
 
-            // --- 主线程安全区 ---
+                        if (geom.ObjectType == Rhino.DocObjects.ObjectType.Extrusion)
+                        {
+                            var eo = geom as Extrusion;
+                            geom = eo.ToBrep() as GeometryBase;
+                        }
+
+                        //默认变形
+                        if (!_useCustomMorph)
+                        {
+                            if (_morph.Morph(geom))
+                            {
+                                localList.Add(new MorphedGeom
+                                {
+                                    GeometryBases = new[] { geom },
+                                    Attributes = item.attr
+                                });
+
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
+                                Interlocked.Increment(ref failCount);
+                            }
+                        }
+                        //自定义的变形类
+                        else
+                        {
+                            var morphed = _myGeomMorph.MorphGeometry(geom, out GeometryBase[] newGeoms);
+                            if (morphed)
+                            {
+                                localList.Add(new MorphedGeom
+                                {
+                                    GeometryBases = newGeoms,
+                                    Attributes = item.attr
+                                });
+                                Interlocked.Increment(ref successCount);
+                            }
+                            else
+                            {
+                                lock (mergeLock) failProcessObjRefs.Add(item.objRef);
+                                Interlocked.Increment(ref failCount);
+
+                            }
+
+                        }
+
+                    }
+                    catch (Exception ex)
+                    {
+                        RhinoApp.WriteLine("对象处理出错: " + ex.Message);
+                    }
+
+                    return localList;
+                },
+
+                // 合并线程结果
+                localList =>
+                {
+                    lock (mergeLock)
+                        successProcessObjs.AddRange(localList);
+                });
+
+            // ================= UI线程 =================
+
             RhinoApp.InvokeOnUiThread((Action)(() =>
             {
-                List<Guid> newids = new List<Guid>();
 
-                foreach (var c in curvesToAdd)
+                _doc.Views.RedrawEnabled = false;
+                List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
+
+                foreach (var mg in successProcessObjs)
                 {
-                    var id = _doc.Objects.AddCurve(c);
-                    newids.Add(id);
-                }
-
-
-                if (!brepsToAdd.IsEmpty)
-                {
-                    var joinedBreps = Brep.JoinBreps(brepsToAdd.ToList(), _doc.ModelAbsoluteTolerance);
-                    if (joinedBreps != null)
+                    foreach (var g in mg.GeometryBases)
                     {
-                        foreach (var jb in joinedBreps)
-                        {
-                            var id = _doc.Objects.AddBrep(jb);
-                            newids.Add(id);
-                        }
-                    }
-                    else
-                    {
-                        foreach (var b in brepsToAdd)
-                        {
-                            var id = _doc.Objects.AddBrep(b);
-                            newids.Add(id);
-                        }
+
+                        //添加对象同时把属性加过去
+                        Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
+
+                        if (id != Guid.Empty)
+                            newIds.Add(id);
                     }
                 }
 
+                // 选中新对象
+                foreach (Guid id in newIds)
+                    _doc.Objects.Select(id);
 
-                newids.ForEach(id => _doc.Objects.Select(id));
-
-
-                _doc.Views.Redraw();
-
-                while (_logMessages.TryDequeue(out string msg))
-                    RhinoApp.WriteLine(msg);
-
-                while (_logObjs.TryDequeue(out GeometryBase g))
-                {
-
-                    if (__ShowLogObj)
-                    {
-                        var addMap = new Dictionary<Type, Func<object, Guid>>
-                            {
-                                { typeof(Curve), o => _doc.Objects.AddCurve((Curve)o) },
-                                { typeof(Brep),  o => _doc.Objects.AddBrep((Brep)o) },
-                                { typeof(Mesh),  o => _doc.Objects.AddMesh((Mesh)o) },
-                                { typeof(Point), o => _doc.Objects.AddPoint(((Point)o).Location) },
-                                { typeof(SubD),  o => _doc.Objects.AddSubD((SubD)o) }
-                            };
-
-                        Guid id = addMap.TryGetValue(g.GetType(), out var addFunc)
-                            ? addFunc(g)
-                            : Guid.Empty;
-                        if (id == Guid.Empty)
-                            RhinoApp.WriteLine($"未知几何类型: {g.ObjectType}");
-                        else
-                            _doc.Objects.Select(id);
-                    }
-                }
-
+                // 删除旧对象
                 if (!_IsCopy)
                 {
-                    //_doc.Objects.Delete()
-                    foreach (ObjRef obf in _objRefs)
+                    HashSet<Guid> failSet = new HashSet<Guid>();
+
+                    foreach (ObjRef fo in failProcessObjRefs)
+                        failSet.Add(fo.ObjectId);
+
+                    foreach (ObjRef ob in _objRefs)
                     {
-                        _doc.Objects.Delete(obf, true);
+                        // 失败的对象不删除，保留在场景中以供用户查看
+                        if (!failSet.Contains(ob.ObjectId))
+                            _doc.Objects.Delete(ob.ObjectId, true);
                     }
                 }
 
-                RhinoApp.WriteLine($"Curve 成功: {curveSuccess}, 失败: {curveFail}");
-                RhinoApp.WriteLine($"Brep  成功: {brepSuccess}, 失败: {brepFail}");
-                RhinoApp.WriteLine($"ControlPoint Failed {_failTranPointCount}");
-                sw.Stop();
-                RhinoApp.WriteLine($"执行时间: {sw.ElapsedMilliseconds} ms");
-                foreach (var fo in failObj)
-                {
+                foreach (ObjRef fo in failProcessObjRefs)
                     _doc.Objects.Select(fo.ObjectId);
-                }
+
+                sw.Stop();
+
+
+                RhinoApp.WriteLine("成功: " + successCount);
+                RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
+                RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
+                RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
+
+
+                _doc.Views.RedrawEnabled = true;
+                _doc.Views.Redraw();
+
 
             }));
 
-            success = curveSuccess + brepSuccess > 0;
-            //sw.Stop();
-
-            return success ? Result.Success : Result.Failure;
+            return Result.Success;
         }
 
 
+
         // 基函数: 点变化
-        private bool ProcessPoint(Point3d pt, out Point3d newPt)
+        private bool ProcessPointAtOneVector(Point3d pt, out Point3d newPt)
         {
             newPt = Point3d.Unset;
 
@@ -300,8 +338,9 @@ namespace MyChangeTools.commands.DualSurfaceMapping
                 // 2️⃣ 在旧空间(A1~B1)上计算点相对位置比例 ratio
                 var vAB_old = pb1 - pa1;
                 double denom = vAB_old * dir;
-                if (Math.Abs(denom) < _ModelTolerance)
-                    return false;
+
+                //if (Math.Abs(denom) < _Tolerance)
+                    //return false;
 
                 double s = (pt - pa1) * dir;
                 double ratio = s / denom;
@@ -319,65 +358,60 @@ namespace MyChangeTools.commands.DualSurfaceMapping
 
                 return true;
             }
-            catch (Exception ex)
+            catch
             {
-                _logMessages.Enqueue($"ProcessPoint 异常: {ex.Message}");
                 return false;
             }
         }
 
 
-
-
-        //基于点变换变换曲线
-        private Result ProcessCurve(Curve curve, out Curve newCurve)
+        private bool ProcessPointAtB2NormalBase(Point3d pt, out Point3d newPt)
         {
-            curve = curve.DuplicateCurve();
-            var nc = curve as NurbsCurve ?? curve.ToNurbsCurve();
+            newPt = Point3d.Unset;
 
-            if (_morph.Morph(nc as GeometryBase))
-                newCurve = nc;
-            else
-                newCurve = null;
-            return newCurve != null ? Result.Success : Result.Failure;
-        }
-
-        private Result ProcessBrepTogether(Brep brep, out List<Brep> newBreps)
-        {
-            brep = brep.DuplicateBrep();
-            newBreps = new List<Brep>();
-            if (_morph.Morph(brep as GeometryBase))
-                newBreps.Add(brep);
-            return newBreps.Count > 0 ? Result.Success : Result.Failure;
-        }
-
-
-        private Result ProcessBrepSplit(Brep brep, out List<Brep> newBreps)
-        {
-            newBreps = new List<Brep>();
-            if (brep == null || !brep.IsValid)
-                return Result.Failure;
-            brep = brep.DuplicateBrep();
-            var results = new ConcurrentBag<Brep>();
-            Parallel.ForEach(brep.Faces, face =>
+            try
             {
-                try
+
+                var dir = _projectionDirection;
+                if (!dir.IsValid || dir.IsZero)
+                    return false;
+
+                // 1️⃣ 求交点与四个面相交
+                var pa1 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepA1, pt, dir);
+                var pb1 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepB1, pt, dir);
+                var pb2 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepB2, pt, dir);
+                if (!_BrepB2.ClosestPoint(pb2, out _, out _, out _, out _, 0,
+                    out Vector3d pb2AtB2Nomal))
                 {
-                    // 每个面单独作为小brep
-                    Brep singleBrep = face.DuplicateFace(false);
-                    if (singleBrep != null && singleBrep.IsValid)
-                    {
-                        if (_morph.Morph(singleBrep as GeometryBase))
-                            results.Add(singleBrep);
-                    }
+                    return false;
                 }
-                catch (Exception ex)
-                {
-                    _logMessages.Enqueue($"[线程异常] 面索引 {face.FaceIndex}: {ex.Message}");
-                }
-            });
-            newBreps = results.ToList();
-            return newBreps.Count > 0 ? Result.Success : Result.Failure;
+                var pa2 = Mylib.GeometryUtils.IntersectSurfaceAlongVector(_BrepA2, pb2, pb2AtB2Nomal);
+
+                if (pa1 == Point3d.Unset || pa2 == Point3d.Unset || pb1 == Point3d.Unset || pb2 == Point3d.Unset)
+                    return false;
+
+                // 2️⃣ 在旧空间(A1~B1)上计算点相对位置比例 ratio
+                var vAB_old = pb1 - pa1;
+                double denom = vAB_old * dir;
+                //if (Math.Abs(denom) < _Tolerance)
+                    //return false;
+
+                double s = (pt - pa1) * dir;
+                double ratio = s / denom;
+
+                // 3️⃣ 在新空间(A2~B2)上按相同 ratio 插值
+                var vAB_new = pb2 - pa2;// Norlmal , equal pb2AtB2Nomal
+                newPt = pa2 + ratio * vAB_new;
+
+                if (!newPt.IsValid || newPt == Point3d.Unset)
+                    return false;
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 }

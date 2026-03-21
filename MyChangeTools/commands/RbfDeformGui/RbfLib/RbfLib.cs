@@ -6,8 +6,15 @@ using System.Collections.Generic;
 using System.Linq;
 namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 {
+
     public static class RBFPhiFunctions
     {
+        static public Dictionary<int, string> PhiIndexFunNameDict = new Dictionary<int, string>
+        {
+            {0, "TPS"},
+            {1, "CSRBFW2"},
+            {2, "GAUSS"}
+        };
         public static double TPS(double r)
         {
             if (r < 1e-10) return 0.0;
@@ -19,6 +26,11 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
             if (rho >= 1.0) return 0.0;
             double t = 1 - rho;
             return t * t * t * t * (4 * rho + 1);
+        }
+        public static double GAUSS(double r, double R)
+        {
+            double t = r / R;
+            return Math.Exp(-t * t);
         }
     }
 
@@ -36,13 +48,13 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 
 
         // 核函数委托，实例化后可以自由替换
-        public Func<double, double> Phi { get; set; }
+        public Func<double, double> Phi { get; set; } = null;
 
         // 构造函数：接收控制点和位移
         public RBFDeformer(List<Point3d> sourcePoints, List<Vector3d> deltas)
         {
             // 默认 Phi = 原始 RBF
-            Phi = RBFPhiFunctions.TPS;
+            // Phi = RBFPhiFunctions.TPS;
 
             // 验证输入
             if (sourcePoints == null)

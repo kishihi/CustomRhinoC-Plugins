@@ -150,7 +150,7 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
                         RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
                         throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
                     }
-                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePoints(baseSrf, targetSrf, out int successCount);
+                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePointsByUVPoint(baseSrf, targetSrf, out int successCount);
                     if (ok)
                     {
                         RhinoApp.WriteLine($"曲面对{i + 1} 成功采样了{successCount}个点");
@@ -183,7 +183,7 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
                         RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
                         throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
                     }
-                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePoints(baseSrf, targetSrf, out int successCount);
+                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePointsByUVPoint(baseSrf, targetSrf, out int successCount);
                     if (ok)
                     {
                         RhinoApp.WriteLine($"曲面对{i + 1} 成功采样了{successCount}个点");
@@ -541,7 +541,7 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
         }
 
         //对UVcount一样的两张曲面进行采样，得到对应点对，计算位移增量
-        bool AddDeltasFromTwoNurbsSurfaceSamplePoints(NurbsSurface baseSrf, NurbsSurface targetSrf, out int successCount)
+        bool AddDeltasFromTwoNurbsSurfaceSamplePointsByUVPoint(NurbsSurface baseSrf, NurbsSurface targetSrf, out int successCount)
         {
             successCount = 0;
             if (baseSrf == null || targetSrf == null) return false;

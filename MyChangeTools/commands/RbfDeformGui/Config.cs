@@ -14,13 +14,13 @@ namespace MyChangeTools.commands.RbfDeformGui
     internal class Config
     {
         // Rhino文档对象
-        public RhinoDoc Doc { get; set;}
+        public RhinoDoc Doc { get; set; }
         //容差
         public double Tolerance { get; set; }
         //是否复制对象
         public bool IsCopy { get; set; }
         //是否使用自定义的变形类MyGeomMorph
-        public bool UseCustomMorph { get; set; }
+        public bool IsUseCustomMorph { get; set; }
         //需要变形的对象
         public ObjRef[] ObjRfs { get; set; }
         //基准对象
@@ -31,12 +31,13 @@ namespace MyChangeTools.commands.RbfDeformGui
         public ObjRef[] LimitedObjRfs { get; set; }
         //最终移动的限制方向
         public List<Vector3d> MoveVectors { get; set; }
-        //是否使用MyGeomMorph变形类来变形几何体
-        public bool UseMyGeomMorph { get; set; }
         public SpaceMorphConfig SpaceMorphConfig { get; set; }
         public MyGeomMorphConfig MyGeomMorphConfig { get; set; }
         public SampleConfig SampleConfig { get; set; }
         public RBFConfig RBFConfig { get; set; }
+
+        public Dictionary<int, string> PhiIndexFunNameDict = RBFLib.RBFPhiFunctions.PhiIndexFunNameDict;
+
     }
     internal class SpaceMorphConfig
     {
@@ -86,7 +87,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                 Doc = RhinoDoc.ActiveDoc,
                 Tolerance = 0.01,
                 IsCopy = false,
-                UseCustomMorph = false,
+                IsUseCustomMorph = false,
                 ObjRfs = new ObjRef[0],
                 BaseObjRfs = new ObjRef[0],
                 TargetObjRfs = new ObjRef[0],
@@ -110,7 +111,7 @@ namespace MyChangeTools.commands.RbfDeformGui
 
                 SampleConfig = new SampleConfig
                 {
-                    CurveSampleByParameter = true,
+                    CurveSampleByParameter = false,
                     MatchMeshByCoordinate = true,
                     CurveSampleDistance = 1
                 },

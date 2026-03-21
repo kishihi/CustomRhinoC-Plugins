@@ -44,19 +44,40 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     _rbfDeformer = new RBFDeformerCommon(_srcPoints, _deltas);
                 else
                     _rbfDeformer = new RBFDeformerWithLinearSystem(_srcPoints, _deltas);
-
                 if (_config.RBFConfig.InfectRadius > 0)
                 {
-                    RhinoApp.WriteLine($"使用CSRBFW2，影响半径 R = {_config.RBFConfig.InfectRadius}");
-                    double R = _config.RBFConfig.InfectRadius;
-                    _rbfDeformer.Phi = r => RBFPhiFunctions.CSRBFW2(r, R);
+                    if (_config.RBFConfig.PhiFunctionID == 1)
+                    {
+                        RhinoApp.WriteLine($"使用CSRBFW2，影响半径 R = {_config.RBFConfig.InfectRadius}");
+                        double R = _config.RBFConfig.InfectRadius;
+                        _rbfDeformer.Phi = r => RBFPhiFunctions.CSRBFW2(r, R);
+                    }
+                    else if (_config.RBFConfig.PhiFunctionID == 2)
+                    {
+                        RhinoApp.WriteLine($"使用GAUSS，影响半径 R = {_config.RBFConfig.InfectRadius}");
+                        double R = _config.RBFConfig.InfectRadius;
+                        _rbfDeformer.Phi = r => RBFPhiFunctions.GAUSS(r, R);
+                    }
+                }
+                if (_config.RBFConfig.PhiFunctionID == 0)
+                {
+                    _rbfDeformer.Phi = r => RBFPhiFunctions.TPS(r);
                 }
 
-                _rbfDeformer.SolveWeights();
+                if (_rbfDeformer.Phi != null)
+                {
+                    _rbfDeformer.SolveWeights();
 
-                RhinoApp.WriteLine($"Length {_rbfDeformer.Wx.Length} WxMax: {_rbfDeformer.Wx.Max()},WxMin:{_rbfDeformer.Wx.Min()}");
-                RhinoApp.WriteLine($"Length {_rbfDeformer.Wy.Length} WyMax: {_rbfDeformer.Wy.Max()},WyMin:{_rbfDeformer.Wy.Min()}");
-                RhinoApp.WriteLine($"Length {_rbfDeformer.Wz.Length} WzMax: {_rbfDeformer.Wz.Max()},WzMin:{_rbfDeformer.Wz.Min()}");
+                    RhinoApp.WriteLine($"Length {_rbfDeformer.Wx.Length} WxMax: {_rbfDeformer.Wx.Max()},WxMin:{_rbfDeformer.Wx.Min()}");
+                    RhinoApp.WriteLine($"Length {_rbfDeformer.Wy.Length} WyMax: {_rbfDeformer.Wy.Max()},WyMin:{_rbfDeformer.Wy.Min()}");
+                    RhinoApp.WriteLine($"Length {_rbfDeformer.Wz.Length} WzMax: {_rbfDeformer.Wz.Max()},WzMin:{_rbfDeformer.Wz.Min()}");
+                }
+                else
+                {
+                    _rbfDeformer = null;
+                    RhinoApp.WriteLine("Phi函数设置错误,请注意半径,Guass和csrbfw2需要半径");
+                    throw new ArgumentException("Phi函数设置错误,请注意半径,Guass和csrbfw2需要半径");
+                }
 
             }
             else

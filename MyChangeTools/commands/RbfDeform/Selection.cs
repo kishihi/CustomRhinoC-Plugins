@@ -99,6 +99,9 @@ namespace MyChangeTools.commands.RbfDeform
         [Option("网格点以网格坐标系匹配")]
         public bool MatchMeshByCoordinate { get; set; } = true;
 
+        [Option("SurfaceSampleMethod")]
+        public int SurfaceSampleMethod { get; set; } = 0;
+
         [Option("采样点影响半径")]
         public double InfectRadius { get; set; } = 0; // 0 代表不限制影响范围 
 
