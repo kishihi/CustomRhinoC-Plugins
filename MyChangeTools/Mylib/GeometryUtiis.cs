@@ -4,15 +4,86 @@ using Rhino.DocObjects;
 using Rhino.Geometry;
 using Rhino.Input.Custom;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace MyChangeTools.Mylib
 {
     public static class GeometryUtils
     {
+        public static List<Point3d> SampleBoundingBoxSimple(BoundingBox box)
+        {
+            var pts = new List<Point3d>();
+
+            if (!box.IsValid) return pts;
+
+            // 8 corner points
+            pts.Add(box.Corner(true, true, true));
+            pts.Add(box.Corner(true, true, false));
+            pts.Add(box.Corner(true, false, true));
+            pts.Add(box.Corner(true, false, false));
+            pts.Add(box.Corner(false, true, true));
+            pts.Add(box.Corner(false, true, false));
+            pts.Add(box.Corner(false, false, true));
+            pts.Add(box.Corner(false, false, false));
+
+            var min = box.Min;
+            var max = box.Max;
+            var c = box.Center;
+
+            // 6 face centers
+            pts.Add(new Point3d(min.X, c.Y, c.Z)); // -X face
+            pts.Add(new Point3d(max.X, c.Y, c.Z)); // +X face
+
+            pts.Add(new Point3d(c.X, min.Y, c.Z)); // -Y face
+            pts.Add(new Point3d(c.X, max.Y, c.Z)); // +Y face
+
+            pts.Add(new Point3d(c.X, c.Y, min.Z)); // -Z face
+            pts.Add(new Point3d(c.X, c.Y, max.Z)); // +Z face
+
+            return pts;
+        }
+
+        public static List<Point3d> SampleBoundingBox(BoundingBox box, double step)
+        {
+            var pts = new List<Point3d>();
+
+            if (!box.IsValid) return pts;
+
+            double dx = box.Max.X - box.Min.X;
+            double dy = box.Max.Y - box.Min.Y;
+            double dz = box.Max.Z - box.Min.Z;
+
+            int nx = (int)Math.Ceiling(dx / step);
+            int ny = (int)Math.Ceiling(dy / step);
+            int nz = (int)Math.Ceiling(dz / step);
+
+            double stepx = dx / nx;
+            double stepy = dy / ny;
+            double stepz = dz / nz;
+
+            for (int i = 0; i <= nx; i++)
+            {
+                double x = box.Min.X + i * stepx;
+
+                for (int j = 0; j <= ny; j++)
+                {
+                    double y = box.Min.Y + j * stepy;
+
+                    for (int k = 0; k <= nz; k++)
+                    {
+                        double z = box.Min.Z + k * stepz;
+
+                        pts.Add(new Point3d(x, y, z));
+                    }
+                }
+            }
+
+            return pts;
+        }
+
+
+
         //public static List<Curve> GetFaceTrimCurves3D(BrepFace face)
         //{
         //    List<Curve> trimCurves3D = new List<Curve>();
@@ -252,16 +323,28 @@ namespace MyChangeTools.Mylib
             return nc;
         }
 
+        public static BoundingBox GetAllBox(List<GeometryBase> objs)
+        {
+            BoundingBox allbox = objs.First().GetBoundingBox(true);
+            for (int i = 0; i < objs.Count(); i++)
+            {
+                if (i == 0) continue;
+                var box = objs[i].GetBoundingBox(true);
+                allbox.Union(box);
+            }
+            return allbox;
+        }
+
         public static bool GetCloestPointMaxSearchDistance(List<GeometryBase> objs, out double distance, out BoundingBox allbox)
         {
             distance = 0;
             allbox = new BoundingBox();
             if (objs.Count() < 1) return false;
-            allbox = objs.First().GetBoundingBox(false);
+            allbox = objs.First().GetBoundingBox(true);
             for (int i = 0; i < objs.Count(); i++)
             {
                 if (i == 0) continue;
-                var box = objs[i].GetBoundingBox(false);
+                var box = objs[i].GetBoundingBox(true);
                 allbox.Union(box);
             }
             if (allbox.IsValid)

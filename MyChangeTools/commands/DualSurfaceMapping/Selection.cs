@@ -110,6 +110,10 @@ namespace MyChangeTools.commands.DualSurfaceMapping
 
         [Option("MyGeomMorphRebuildCT")]
         public int RebuildCurveCount { get; set; } = 0;
+
+        [Option("UseRbfFit")]
+        public bool IsUseRbfFit { get; set; } = true;
+
     }
 
     public class Selection
@@ -294,7 +298,7 @@ namespace MyChangeTools.commands.DualSurfaceMapping
                         {
                             if (RhinoGet.GetPoint("选择第一个点", false, out Point3d p1) != Result.Success)
                                 return Result.Cancel;
-                            
+
                             if (RhinoGet.GetPoint("选择第二个点", false, out Point3d p2) != Result.Success)
                                 return Result.Cancel;
 

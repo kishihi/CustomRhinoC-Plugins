@@ -1,9 +1,9 @@
-﻿using Rhino;
+﻿using MyChangeTools.commands.RbfDeform.RBFLib;
+using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
 using Rhino.Geometry;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -69,13 +69,13 @@ namespace MyChangeTools.commands.DualSurfaceMapping
         private readonly double _Tolerance;
 
         public GeometryProcessor(
-            RhinoDoc doc, 
-            ObjRef[] objRefs, 
-            Brep BrepA1, 
-            Brep BrepA2, 
-            Brep BrepB1, 
-            Brep BrepB2, 
-            Vector3d projectionDirection, 
+            RhinoDoc doc,
+            ObjRef[] objRefs,
+            Brep BrepA1,
+            Brep BrepA2,
+            Brep BrepB1,
+            Brep BrepB2,
+            Vector3d projectionDirection,
             SelectionOptions selectionOptions)
         {
             _doc = doc;
@@ -85,52 +85,149 @@ namespace MyChangeTools.commands.DualSurfaceMapping
             _BrepA2 = BrepA2;
             _BrepB1 = BrepB1;
             _BrepB2 = BrepB2;
-            _Tolerance=selectionOptions.Tolerance;
+            _Tolerance = selectionOptions.Tolerance;
 
-            Func<Point3d, Point3d> processPoint = pt =>
+            if (selectionOptions.IsUseRbfFit)
             {
-                bool ok = false;
-                Point3d newpt = Point3d.Unset;
-                if(selectionOptions.IsB2NormalBase)
-                    ok = ProcessPointAtB2NormalBase(pt, out newpt);
-                else
-                    ok = ProcessPointAtOneVector(pt, out newpt);
-                if (!ok)
+                Point3d processPointSample(Point3d pt)
                 {
-                    _failMorphPointCount++;
+                    Point3d newpt = Point3d.Unset;
+                    if (selectionOptions.IsB2NormalBase)
+                        ProcessPointAtB2NormalBase(pt, out newpt);
+                    else
+                        ProcessPointAtOneVector(pt, out newpt);
+                    return newpt;
+                }
+                var obboxs = _objRefs.Select(f => f.Geometry().GetBoundingBox(false));
+                var samps = obboxs
+                .SelectMany(b => Mylib.GeometryUtils.SampleBoundingBoxSimple(b))
+                .ToList();
+                var src = new Point3d[samps.Count];
+                var dst = new Point3d[samps.Count];
+                var valid = new bool[samps.Count];
+                Parallel.For(0, samps.Count, i =>
+                {
+                    Point3d dt = processPointSample(samps[i]);
+                    if (dt != Point3d.Unset)
+                    {
+                        src[i] = samps[i];
+                        dst[i] = dt;
+                        valid[i] = true;
+                    }
+                });
+                var sampSrcPts = new List<Point3d>();
+                var sampDesPts = new List<Point3d>();
 
+                for (int i = 0; i < samps.Count; i++)
+                {
+                    if (valid[i])
+                    {
+                        sampSrcPts.Add(src[i]);
+                        sampDesPts.Add(dst[i]);
+                    }
+                }
+
+                var deltas = sampSrcPts.Zip(sampDesPts, (srcc, dstt) => dstt - srcc).ToList();
+
+                var _rbfDeformer = new RBFDeformerCommon(sampSrcPts, deltas);
+
+                RhinoApp.WriteLine($"采集到{sampSrcPts.Count}点进行RBF近似拟合");
+
+                _rbfDeformer.SolveWeights();
+
+                RhinoApp.WriteLine($"Length {_rbfDeformer.Wx.Length} WxMax: {_rbfDeformer.Wx.Max()},WxMin:{_rbfDeformer.Wx.Min()}");
+                RhinoApp.WriteLine($"Length {_rbfDeformer.Wy.Length} WyMax: {_rbfDeformer.Wy.Max()},WyMin:{_rbfDeformer.Wy.Min()}");
+                RhinoApp.WriteLine($"Length {_rbfDeformer.Wz.Length} WzMax: {_rbfDeformer.Wz.Max()},WzMin:{_rbfDeformer.Wz.Min()}");
+
+
+                Func<Point3d, Point3d> processPointRbfFit = pt =>
+                {
+                    Point3d newpt = Point3d.Unset;
+                    if (selectionOptions.IsB2NormalBase)
+                        ProcessPointAtB2NormalBase(pt, out newpt);
+                    else
+                        ProcessPointAtOneVector(pt, out newpt);
+                    if (newpt == Point3d.Unset)
+                    {
+                        _failMorphPointCount++;
+                        newpt = _rbfDeformer.Evaluate(pt);
+                    }
+                    return newpt;
+                };
+                // use custommorph
+                if (selectionOptions.UseCustomMorph)
+                {
+                    _myGeomMorph = new Mylib.MyGeomMorph(
+                        doc,
+                        processPointRbfFit,
+                        selectionOptions.Tolerance,
+                        selectionOptions.RebuildFaceUCount,
+                        selectionOptions.RebuildFaceVCount,
+                        selectionOptions.RebuildCurveCount,
+                        selectionOptions.ShrinkSurfaceToEdge
+                    );
+                    _useCustomMorph = true;
                 }
                 else
                 {
-                    _successMorphPointCount++;
+                    _morph = new MyPointFieldMorph(
+                        processPointRbfFit,
+                        selectionOptions.Tolerance,
+                        selectionOptions.PreserveStructure,
+                        selectionOptions.QuickPreview
+                    );
+                    _useCustomMorph = false;
                 }
-                return newpt;
-            };
-
-
-            // use custommorph
-            if (selectionOptions.UseCustomMorph)
-            {
-                _myGeomMorph = new Mylib.MyGeomMorph(
-                    doc,
-                    processPoint,
-                    selectionOptions.Tolerance,
-                    selectionOptions.RebuildFaceUCount,
-                    selectionOptions.RebuildFaceVCount,
-                    selectionOptions.RebuildCurveCount,
-                    selectionOptions.ShrinkSurfaceToEdge
-                );
-                _useCustomMorph = true;
             }
             else
+
             {
-                _morph = new MyPointFieldMorph(
-                    processPoint,
-                    selectionOptions.Tolerance,
-                    selectionOptions.PreserveStructure,
-                    selectionOptions.QuickPreview
-                );
-                _useCustomMorph = false;
+                Func<Point3d, Point3d> processPointRealPointTranForm = pt =>
+                {
+                    bool ok = false;
+                    Point3d newpt = Point3d.Unset;
+                    if (selectionOptions.IsB2NormalBase)
+                        ok = ProcessPointAtB2NormalBase(pt, out newpt);
+                    else
+                        ok = ProcessPointAtOneVector(pt, out newpt);
+                    if (!ok)
+                    {
+                        _failMorphPointCount++;
+
+                    }
+                    else
+                    {
+                        _successMorphPointCount++;
+                    }
+                    return newpt;
+                };
+
+
+
+                // use custommorph
+                if (selectionOptions.UseCustomMorph)
+                {
+                    _myGeomMorph = new Mylib.MyGeomMorph(
+                        doc,
+                        processPointRealPointTranForm,
+                        selectionOptions.Tolerance,
+                        selectionOptions.RebuildFaceUCount,
+                        selectionOptions.RebuildFaceVCount,
+                        selectionOptions.RebuildCurveCount,
+                        selectionOptions.ShrinkSurfaceToEdge
+                    );
+                    _useCustomMorph = true;
+                }
+                else
+                {
+                    _morph = new MyPointFieldMorph(
+                        processPointRealPointTranForm,
+                        selectionOptions.Tolerance,
+                        selectionOptions.PreserveStructure,
+                        selectionOptions.QuickPreview
+                    );
+                    _useCustomMorph = false;
+                }
             }
 
             _IsCopy = selectionOptions.IsCopy;
@@ -300,7 +397,7 @@ namespace MyChangeTools.commands.DualSurfaceMapping
 
                 RhinoApp.WriteLine("成功: " + successCount);
                 RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
-                RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败MorphPoint: {_failMorphPointCount}.");
+                RhinoApp.WriteLine($"成功MorphPoint:{_successMorphPointCount}, 失败或RBFFITMorphPoint: {_failMorphPointCount}.");
                 RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
 
 
@@ -340,7 +437,7 @@ namespace MyChangeTools.commands.DualSurfaceMapping
                 double denom = vAB_old * dir;
 
                 //if (Math.Abs(denom) < _Tolerance)
-                    //return false;
+                //return false;
 
                 double s = (pt - pa1) * dir;
                 double ratio = s / denom;
@@ -394,7 +491,7 @@ namespace MyChangeTools.commands.DualSurfaceMapping
                 var vAB_old = pb1 - pa1;
                 double denom = vAB_old * dir;
                 //if (Math.Abs(denom) < _Tolerance)
-                    //return false;
+                //return false;
 
                 double s = (pt - pa1) * dir;
                 double ratio = s / denom;
