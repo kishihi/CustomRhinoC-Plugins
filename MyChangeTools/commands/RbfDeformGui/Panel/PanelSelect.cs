@@ -116,11 +116,12 @@ namespace MyChangeTools.commands.RbfDeformGui
      Action selectAction,
      Action updateConfig)
         {
-            var section = new StackLayout {
-                Orientation = Orientation.Vertical, 
-                Spacing = 5 ,
+            var section = new StackLayout
+            {
+                Orientation = Orientation.Vertical,
+                Spacing = 5,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                HorizontalContentAlignment=HorizontalAlignment.Center
+                HorizontalContentAlignment = HorizontalAlignment.Center
             };
 
             section.Items.Add(new Label
@@ -191,8 +192,8 @@ namespace MyChangeTools.commands.RbfDeformGui
         {
             if (index < 0 || index >= refs.Count) return;
             Config.Doc.Objects.UnselectAll();
-            if(!Config.Doc.Objects.Select(refs[index].ObjectId)) 
-                MessageBox.Show($"Invaild obj, please remove it");
+            if (!Config.Doc.Objects.Select(refs[index].ObjectId))
+                MessageToast.Instance.ShowMessage($"List Item {index + 1} is a invaild obj, please remove it");
             Config.Doc.Views.Redraw();
         }
 
