@@ -73,7 +73,7 @@ project.lock.json
 *.etl
 *.wrn
 *.err
-
+*.rar
 # ==========================================
 # 系统与编辑器文件
 # ==========================================
@@ -105,3 +105,4 @@ Thumbs.db
 /MyRhinoSelectTools/Properties
 /MyRhinoSelectTools/.vs
 /MyRhinoSelectTools/.vscode
+MyChangeTools320.rar

@@ -94,7 +94,7 @@ namespace MyChangeTools.commands.DualSurfaceMapping
         public bool IsCopy { get; set; } = false;
 
         [Option("B2作为法向基面")]
-        public bool IsB2NormalBase { get; set; } = true;
+        public bool IsB2NormalBase { get; set; } = false;
 
         [Option("UseMyGeomMorph")]
         public bool UseCustomMorph { get; set; } = false;
