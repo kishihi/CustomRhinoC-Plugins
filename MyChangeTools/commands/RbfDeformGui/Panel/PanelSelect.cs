@@ -151,6 +151,7 @@ namespace MyChangeTools.commands.RbfDeformGui
                 refList.RemoveAt(idx);
                 RefreshListBox(listBox, refList);
                 updateConfig?.Invoke();
+                MessageToast.Instance.Hide();
             };
 
             var selectBtn = new Button { Text = "Select" };

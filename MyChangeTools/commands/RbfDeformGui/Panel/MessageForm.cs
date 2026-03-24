@@ -66,6 +66,13 @@ namespace MyChangeTools.commands.RbfDeformGui
             this.Visible = false;
         }
 
+        public void Hide()
+        {
+            this.Visible = false;
+            _textArea.Text = ""; 
+            addedmessages.Clear();
+        }
+
         /// <summary>
         /// 显示消息，如果窗口没关闭追加一行，如果关闭了就清空重写
         /// </summary>
