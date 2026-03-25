@@ -111,7 +111,13 @@ namespace MyChangeTools.commands.FlowAlongMesh
         [Option("BoundaryInfer")]
         public bool BoundaryInfer { get; set; } = true;
 
-        [Option("BoundaryInferSampleStep")]
+        [Option("BoundaryInferInternalSample")]
+        public bool BoundaryInferInternalSample { get; set; } = true;
+
+        [Option("BoundaryInferEdgeSample")]
+        public bool BoundaryInferEdgeSample { get; set; } = true;
+
+        [Option("BoundaryInferInternalSampleStep")]
         public double BoundaryInferSampleStep { get; set; } = 3;
 
         [Option("BoundaryInferOutsideDistanceTol")]

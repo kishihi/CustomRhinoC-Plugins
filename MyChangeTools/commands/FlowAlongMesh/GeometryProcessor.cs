@@ -103,34 +103,44 @@ namespace MyChangeTools.commands.FlowAlongMesh
             {
                 List<Vector3d> deltas = new List<Vector3d>();
                 List<Point3d> _validSamplePoint = new List<Point3d>();
-                var obboxs = _objRefs.Select(f => f.Geometry().GetBoundingBox(false));
-                var _samplepoint = obboxs.SelectMany(
-                        b => Mylib.GeometryUtils.SampleBoundingBox(b, selectionOptions.BoundaryInferSampleStep)
-                        ).Where(p => !Mylib.GeometryUtils.IsPointOutsideBrep(_baseBrep, p, _boundaryInferOutsideDistanceTol));
-                foreach (var spt in _samplepoint)
+                List<Point3d> _internalSamplepoint = new List<Point3d>();
+                List<Point3d> _baseMeshNakedPoints = new List<Point3d>();
+                if (selectionOptions.BoundaryInferInternalSample)
                 {
-                    Point3d tpt = ProcessPointDefault(spt);
-                    if (tpt.IsValid && tpt != Point3d.Unset)
+                    var obboxs = _objRefs.Select(f => f.Geometry().GetBoundingBox(false));
+                    _internalSamplepoint.AddRange(
+                        obboxs.SelectMany(
+                            b => Mylib.GeometryUtils.SampleBoundingBox(b, selectionOptions.BoundaryInferSampleStep)
+                            ).Where(p => !Mylib.GeometryUtils.IsPointOutsideBrep(_baseBrep, p, _boundaryInferOutsideDistanceTol))
+                    );
+                    foreach (var spt in _internalSamplepoint)
                     {
-                        deltas.Add(tpt - spt);
-                        _validSamplePoint.Add(spt);
+                        Point3d tpt = ProcessPointDefault(spt);
+                        if (tpt.IsValid && tpt != Point3d.Unset)
+                        {
+                            deltas.Add(tpt - spt);
+                            _validSamplePoint.Add(spt);
+                        }
                     }
                 }
-                List<Point3d> _baseMeshNakedPoints = new List<Point3d>();
-                _baseMeshNakedPoints.AddRange(Mylib.GeometryUtils.GetMeshBoundaryPoints(_baseMesh));
-                foreach (var spt in _baseMeshNakedPoints)
+                if (selectionOptions.BoundaryInferEdgeSample)
                 {
-                    Point3d tpt = ProcessPointDefault(spt);
-                    if (tpt.IsValid && tpt != Point3d.Unset)
+
+                    _baseMeshNakedPoints.AddRange(Mylib.GeometryUtils.GetMeshBoundaryPoints(_baseMesh));
+                    foreach (var spt in _baseMeshNakedPoints)
                     {
-                        deltas.Add(tpt - spt);
-                        _validSamplePoint.Add(spt);
+                        Point3d tpt = ProcessPointDefault(spt);
+                        if (tpt.IsValid && tpt != Point3d.Unset)
+                        {
+                            deltas.Add(tpt - spt);
+                            _validSamplePoint.Add(spt);
+                        }
                     }
                 }
                 if (deltas.Count == _validSamplePoint.Count && _validSamplePoint.Count > 0)
                 {
                     _rbfDeformer = new RbfDeform.RBFLib.RBFDeformerCommon(_validSamplePoint, deltas);
-                    RhinoApp.WriteLine($"边界点:{_baseMeshNakedPoints.Count},内部点:{_samplepoint.Count()},共采集到{_validSamplePoint.Count}点进行边界推算");
+                    RhinoApp.WriteLine($"边界点:{_baseMeshNakedPoints.Count},内部点:{_internalSamplepoint.Count()},共采集到{_validSamplePoint.Count}点进行边界推算");
                     _rbfDeformer.SolveWeights();
                     ProcessPoint = ProcessPointBoundaryInfer;
                 }

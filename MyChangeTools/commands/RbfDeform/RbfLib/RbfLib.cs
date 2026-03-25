@@ -321,7 +321,7 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
                 Wx = Wy = Wz = null; // 标记失败
             }
 
-            RhinoApp.WriteLine("RBFDeformer 构造完成");
+            // RhinoApp.WriteLine("RBFDeformer 构造完成");
         }
 
         public override Point3d Evaluate(Point3d p)
