@@ -5,6 +5,7 @@ using Rhino.Geometry;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -51,7 +52,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
         private readonly Mesh _baseMesh;
         private readonly Mesh _targetMesh;
         private readonly Vector3d _limitNormalVector;
-        private readonly double _Tolerance;
+        private readonly double _tolerance;
 
         private readonly SubD _baseSubD;
         private readonly Brep _baseBrep;
@@ -64,13 +65,23 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
         private int _failMorphPointCount = 0;
         private int _successMorphPointCount = 0;
-
+        private int _outsideMeshPointCount = 0;
+        private int _insideMeshPointCount = 0;
 
         private readonly MyPointFieldMorph _morph;
 
         private readonly Mylib.MyGeomMorph _myGeomMorph;
 
         private readonly bool _useCustomMorph = false;
+
+        private readonly bool _boundaryInfer = false;
+
+        private readonly double _boundaryInferOutsideDistanceTol;
+
+        private readonly RbfDeform.RBFLib.RBFDeformer _rbfDeformer;
+
+        private delegate Point3d ProcessPointDelegate(Point3d pt);
+
 
         public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Mesh baseMesh, Mesh targetMesh, Vector3d limitNormalVector, SelectionOptions selectionOptions)
         {
@@ -79,9 +90,52 @@ namespace MyChangeTools.commands.FlowAlongMesh
             _baseMesh = baseMesh;
             _targetMesh = targetMesh;
             _limitNormalVector = limitNormalVector;
-            _Tolerance = selectionOptions.Tolerance;
+            _tolerance = selectionOptions.Tolerance;
+            _boundaryInfer = selectionOptions.BoundaryInfer;
+            _boundaryInferOutsideDistanceTol = selectionOptions.BoundaryInferOutsideDistanceTol;
+            _IsCopy = selectionOptions.IsCopy;
+            _targetSubD = SubD.CreateFromMesh(targetMesh);
+            _targetBrep = _targetSubD.ToBrep(SubDToBrepOptions.Default);
+            _baseSubD = SubD.CreateFromMesh(baseMesh);
+            _baseBrep = _baseSubD.ToBrep(SubDToBrepOptions.Default);
+            ProcessPointDelegate ProcessPoint = ProcessPointDefault;
+            if (_boundaryInfer)
+            {
+                List<Vector3d> deltas = new List<Vector3d>();
+                List<Point3d> _validSamplePoint = new List<Point3d>();
+                var obboxs = _objRefs.Select(f => f.Geometry().GetBoundingBox(false));
+                var _samplepoint = obboxs.SelectMany(
+                        b => Mylib.GeometryUtils.SampleBoundingBox(b, selectionOptions.BoundaryInferSampleStep)
+                        ).Where(p => !Mylib.GeometryUtils.IsPointOutsideBrep(_baseBrep, p, _boundaryInferOutsideDistanceTol));
+                foreach (var spt in _samplepoint)
+                {
+                    Point3d tpt = ProcessPointDefault(spt);
+                    if (tpt.IsValid && tpt != Point3d.Unset)
+                    {
+                        deltas.Add(tpt - spt);
+                        _validSamplePoint.Add(spt);
+                    }
+                }
+                List<Point3d> _baseMeshNakedPoints = new List<Point3d>();
+                _baseMeshNakedPoints.AddRange(Mylib.GeometryUtils.GetMeshBoundaryPoints(_baseMesh));
+                foreach (var spt in _baseMeshNakedPoints)
+                {
+                    Point3d tpt = ProcessPointDefault(spt);
+                    if (tpt.IsValid && tpt != Point3d.Unset)
+                    {
+                        deltas.Add(tpt - spt);
+                        _validSamplePoint.Add(spt);
+                    }
+                }
+                if (deltas.Count == _validSamplePoint.Count && _validSamplePoint.Count > 0)
+                {
+                    _rbfDeformer = new RbfDeform.RBFLib.RBFDeformerCommon(_validSamplePoint, deltas);
+                    RhinoApp.WriteLine($"边界点:{_baseMeshNakedPoints.Count},内部点:{_samplepoint.Count()},共采集到{_validSamplePoint.Count}点进行边界推算");
+                    _rbfDeformer.SolveWeights();
+                    ProcessPoint = ProcessPointBoundaryInfer;
+                }
 
-
+            }
             Func<Point3d, Point3d> LastProcessPoint = pt =>
             {
                 var newpt = ProcessPoint(pt);
@@ -89,7 +143,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
                     _failMorphPointCount++;
                 else
                     _successMorphPointCount++;
-                return ProcessPoint(pt);
+                return newpt;
             };
 
             if (!selectionOptions.UseCustomMorph)
@@ -115,21 +169,9 @@ namespace MyChangeTools.commands.FlowAlongMesh
                     );
                 _useCustomMorph = true;
             }
-
-            _IsCopy = selectionOptions.IsCopy;
-
-            _targetSubD = SubD.CreateFromMesh(targetMesh);
-
-            _targetBrep = _targetSubD.ToBrep(SubDToBrepOptions.Default);
-
-            _baseSubD = SubD.CreateFromMesh(baseMesh);
-
-            _baseBrep = _baseSubD.ToBrep(SubDToBrepOptions.Default);
-
         }
 
-
-        public Point3d ProcessPoint(
+        public Point3d ProcessPointDefault(
             Point3d p)
         {
             MeshPoint mp = _baseMesh.ClosestMeshPoint(p, 0.0);
@@ -140,13 +182,12 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
             if (_limitNormalVector == Vector3d.Unset)
             {
-                
                 if (_baseBrep.ClosestPoint(
                     q,
                     out Point3d closestPoint0,
-                    out ComponentIndex ci0,
-                    out double s0,
-                    out double t0,
+                    out _,
+                    out _,
+                    out _,
                     0,
                     out Vector3d normal0)
                 )
@@ -165,9 +206,9 @@ namespace MyChangeTools.commands.FlowAlongMesh
                 if (_baseBrep.ClosestPoint(
                     q,
                     out Point3d closestPoint0,
-                    out ComponentIndex ci0,
-                    out double s0,
-                    out double t0,
+                    out _,
+                    out _,
+                    out _,
                     0,
                     out Vector3d normal0)
                 )
@@ -211,6 +252,22 @@ namespace MyChangeTools.commands.FlowAlongMesh
                 }
             }
             return q2 + n2 * height;
+
+        }
+
+        public Point3d ProcessPointBoundaryInfer(
+            Point3d p)
+        {
+            if (Mylib.GeometryUtils.IsPointOutsideBrep(_baseBrep, p, _boundaryInferOutsideDistanceTol))
+            {
+                _outsideMeshPointCount++;
+                return _rbfDeformer.Evaluate(p);
+            }
+            else
+            {
+                _insideMeshPointCount++;
+                return ProcessPointDefault(p);
+            }
 
         }
 
@@ -327,7 +384,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
                 foreach (var mg in successProcessObjs)
                 {
                     foreach (var g in mg.GeometryBases)
-                    {   
+                    {
 
                         //添加对象同时把属性加过去
                         Guid id = _doc.Objects.Add(g, mg.Attributes.Duplicate());
@@ -362,7 +419,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
                 RhinoApp.WriteLine("成功: " + successCount);
                 RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
-                RhinoApp.WriteLine($"_successMorphPointCount: {_successMorphPointCount},_failMorphPointCount{_failMorphPointCount}");
+                RhinoApp.WriteLine($"_successMorphPointCount: {_successMorphPointCount},_failMorphPointCount{_failMorphPointCount},_outsideMeshPointCount: {_outsideMeshPointCount},_insideMeshPointCount: {_insideMeshPointCount}");
 
                 RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
 

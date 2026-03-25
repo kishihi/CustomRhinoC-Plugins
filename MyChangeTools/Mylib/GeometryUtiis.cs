@@ -11,6 +11,95 @@ namespace MyChangeTools.Mylib
 {
     public static class GeometryUtils
     {
+        public static List<double> FindKinks(NurbsCurve curve)
+        {
+            List<double> kinkParams = new List<double>();
+            var knots = curve.Knots;
+            int degree = curve.Degree;
+            double domainMin = curve.Domain.Min;
+            double domainMax = curve.Domain.Max;
+
+            for (int i = 0; i < knots.Count;)
+            {
+                double currentKnot = knots[i];
+                int multiplicity = 1;
+
+                // 计算 multiplicity
+                while
+                (
+                    i + multiplicity < knots.Count
+                &&
+                    Math.Abs(knots[i + multiplicity] - currentKnot) < Rhino.RhinoMath.ZeroTolerance
+                )
+                {
+                    multiplicity++;
+                }
+
+                // 如果 multiplicity == degree 且是内部 knot，则是 kink
+                if (multiplicity == degree && currentKnot > domainMin && currentKnot < domainMax)
+                {
+                    kinkParams.Add(currentKnot);
+                }
+
+                i += multiplicity;  // 跳到下一个独特 knot
+            }
+
+            return kinkParams;
+        }
+        public static List<Point3d> GetMeshBoundaryPoints(Mesh mesh)
+        {
+            var pts = new List<Point3d>();
+
+            if (mesh == null || !mesh.IsValid)
+                return pts;
+
+            var nakedEdges = mesh.GetNakedEdges(); // Polyline[]
+
+            for (int i = 0; i < nakedEdges.Length; i++)
+            {
+                var pl = nakedEdges[i];
+                for (int j = 0; j < pl.Count; j++)
+                {
+                    pts.Add(pl[j]);
+                }
+            }
+
+            return pts;
+        }
+
+        public static bool IsPointOutsideBrep(
+    Brep brep,
+    Point3d testpt,
+    double outsideDistanceTol)
+        {
+            // return false;
+            if (brep == null || !brep.IsValid)
+                return true;
+
+            // // 最近点
+            if (!brep.ClosestPoint(
+                    testpt,
+                    out Point3d brepCloestPoint,
+                    out ComponentIndex _,
+                    out double _,
+                    out double _,
+                    0,
+                    out Vector3d normal))
+                return true;
+
+            normal.Unitize();
+
+            Vector3d rv = testpt - brepCloestPoint;
+
+            double rvProjectNormalLength = Math.Abs(rv * normal);
+
+            if (Math.Abs(rvProjectNormalLength - rv.Length) > outsideDistanceTol)
+            {
+                return true;
+            }
+            return false;
+
+        }
         public static List<Point3d> SampleBoundingBoxSimple(BoundingBox box)
         {
             var pts = new List<Point3d>();
@@ -81,211 +170,6 @@ namespace MyChangeTools.Mylib
 
             return pts;
         }
-
-
-
-        //public static List<Curve> GetFaceTrimCurves3D(BrepFace face)
-        //{
-        //    List<Curve> trimCurves3D = new List<Curve>();
-        //    Brep brep = face.Brep;
-
-        //    // 遍历 BrepFace 中的所有 BrepLoop (外环和内环/孔)
-        //    foreach (BrepLoop loop in face.Loops)
-        //    {
-        //        // 遍历每个 Loop 中的所有 BrepTrim
-        //        foreach (BrepTrim trim in loop.Trims)
-        //        {
-        //            // BrepTrim 自身是 2D 的，它引用了一个 3D 的 BrepEdge
-        //            // 使用 trim.Edge 获取关联的 BrepEdge 对象
-        //            BrepEdge edge = trim.Edge;
-
-        //            if (edge != null)
-        //            {
-        //                // 从 BrepEdge 获取实际的三维曲线。
-        //                // 注意：BrepEdge 可能会反转引用的曲线方向。
-        //                // edge.EdgeCurve 属性返回原始的 3D 曲线，但可能需要根据 trim.IsReversed 调整方向。
-        //                // 更好的方法是使用 edge.ToNurbsCurve()，它通常能处理好方向和子域。
-
-        //                Curve edgeCurve3D = edge.ToNurbsCurve();
-
-        //                // 确保曲线方向与 trim 的方向一致
-        //                if (trim.ProxyCurveIsReversed)
-        //                {
-        //                    edgeCurve3D.Reverse();
-        //                }
-
-        //                // trim 还定义了一个子域 (sub-domain)，确保只获取实际被修剪的部分
-        //                // 虽然 edge.ToNurbsCurve() 通常会处理子域，但可以再次使用 Trim 方法确保精确性
-        //                Interval domain = edge.Domain;
-        //                Curve trimmedCurve3D = edgeCurve3D.Trim(domain.T0, domain.T1);
-
-        //                if (trimmedCurve3D != null)
-        //                {
-        //                    trimCurves3D.Add(trimmedCurve3D);
-        //                }
-        //                else
-        //                {
-        //                    // 如果 Trim 失败，添加原始曲线（可能是因为曲线已经是正确的长度或域有问题）
-        //                    trimCurves3D.Add(edgeCurve3D);
-        //                }
-        //            }
-        //        }
-        //    }
-
-        //    return trimCurves3D;
-        //}
-        //public static List<Curve> GetFaceBorderCurves(BrepFace face)
-        //{
-        //    var borders = new List<Curve>();
-        //    foreach (var loop in face.Loops)
-        //    {
-        //        borders.Add(loop.To3dCurve());
-        //    }
-        //    return borders;
-        //}
-
-        //public static List<Curve> ExtendAndPullCurves(List<Curve> curves, BrepFace newFace, double tolerance)
-        //{
-        //    var pulledCurves = new List<Curve>();
-        //    double extendLen = tolerance * 1000;
-
-        //    foreach (var crv in curves)
-        //    {
-        //        if (crv == null || !crv.IsValid)
-        //            continue;
-
-        //        Curve extended = crv;
-        //        try
-        //        {
-        //            if (!crv.IsClosed)
-        //                extended = crv.Extend(CurveEnd.Both, extendLen, CurveExtensionStyle.Line);
-        //        }
-        //        catch
-        //        {
-        //            extended = crv.DuplicateCurve();
-        //        }
-
-        //        var pulled = extended.PullToBrepFace(newFace, tolerance);
-        //        if (pulled != null && pulled.Length > 0)
-        //            pulledCurves.AddRange(pulled.Where(c => c != null && c.IsValid));
-        //    }
-
-        //    return pulledCurves;
-        //}
-
-
-
-
-
-        //public static List<Point3d> SamplePointsOnBrepFace0(BrepFace face, int u_count = 5, int v_count = 5, double border_dist = 0.1)
-        //{
-        //    var points = new List<Point3d>();
-        //    if (face == null || u_count < 1 || v_count < 1)
-        //        return points;
-
-        //    var u_domain = face.Domain(0);
-        //    var v_domain = face.Domain(1);
-        //    double u_step = (u_domain.T1 - u_domain.T0) / (u_count - 1);
-        //    double v_step = (v_domain.T1 - v_domain.T0) / (v_count - 1);
-
-        //    var borders = new List<Curve>();
-        //    foreach (var loop in face.Loops)
-        //    {
-        //        if (loop.LoopType == BrepLoopType.Outer)
-        //            borders.Add(loop.To3dCurve());
-        //    }
-
-        //    for (int i = 0; i < u_count; i++)
-        //    {
-        //        for (int j = 0; j < v_count; j++)
-        //        {
-        //            double u = u_domain.T0 + i * u_step;
-        //            double v = v_domain.T0 + j * v_step;
-
-        //            if (face.IsPointOnFace(u, v) == PointFaceRelation.Interior)
-        //            {
-        //                var pt = face.PointAt(u, v);
-        //                double min_dist = double.MaxValue;
-
-        //                foreach (var crv in borders)
-        //                {
-        //                    if (crv.ClosestPoint(pt, out double t))
-        //                    {
-        //                        double d = pt.DistanceTo(crv.PointAt(t));
-        //                        if (d < min_dist) min_dist = d;
-        //                    }
-        //                }
-
-        //                if (min_dist > border_dist)
-        //                    points.Add(pt);
-        //            }
-        //        }
-        //    }
-        //    return points;
-        //}
-
-
-        //public static List<Point3d> SamplePointsOnBrepFace(BrepFace face, double tol, int u_count = 5, int v_count = 5, double border_dist = 0.1)
-        //{
-        //    var points = new List<Point3d>();
-        //    if (face == null || u_count < 1 || v_count < 1)
-        //        return points;
-
-        //    // --- 准备域和步长 ---
-        //    var u_domain = face.Domain(0);
-        //    var v_domain = face.Domain(1);
-        //    double u_step = (u_domain.T1 - u_domain.T0) / (u_count - 1);
-        //    double v_step = (v_domain.T1 - v_domain.T0) / (v_count - 1);
-
-        //    var borders = new List<Curve>();
-        //    foreach (var loop in face.Loops)
-        //    {
-        //        borders.Add(loop.To3dCurve());
-        //    }
-
-        //    // --- 并行采样 ---
-        //    var result = new ConcurrentBag<Point3d>();
-        //    var options = new ParallelOptions
-        //    {
-        //        MaxDegreeOfParallelism = Math.Min(System.Environment.ProcessorCount, 8)
-        //    };
-
-        //    Parallel.For(0, u_count, options, i =>
-        //    {
-        //        for (int j = 0; j < v_count; j++)
-        //        {
-        //            double u = u_domain.T0 + i * u_step;
-        //            double v = v_domain.T0 + j * v_step;
-
-        //            // 快速检测参数合法性（避免内部Nurbs异常）
-        //            if (!face.IsPointOnFace(u, v).HasFlag(PointFaceRelation.Interior))
-        //                continue;
-
-        //            var pt = face.PointAt(u, v);
-
-        //            // --- 快速边界距离估算 ---
-        //            double minDist = double.MaxValue;
-        //            foreach (var crv in borders)
-        //            {
-        //                if (crv.ClosestPoint(pt, out double t))
-        //                {
-        //                    double d = pt.DistanceTo(crv.PointAt(t));
-        //                    if (d < minDist)
-        //                    {
-        //                        minDist = d;
-        //                        if (minDist < border_dist) // 提前退出
-        //                            break;
-        //                    }
-        //                }
-        //            }
-
-        //            if (minDist > border_dist + tol)
-        //                result.Add(pt);
-        //        }
-        //    });
-
-        //    return result.ToList();
-        //}
 
 
         //把能转换的转为为brep统一处理
