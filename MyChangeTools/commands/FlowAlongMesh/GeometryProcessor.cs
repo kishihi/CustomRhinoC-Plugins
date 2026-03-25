@@ -39,7 +39,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
         }
     }
 
-    internal class MorphedGeom
+    public class MorphedGeom
     {
         public GeometryBase[] GeometryBases { get; set; }
         public ObjectAttributes Attributes { get; set; }
@@ -281,13 +281,9 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
         }
 
-        public Result Process()
+        public (List<MorphedGeom>, List<ObjRef>) Process()
         {
-            if (_baseMesh.Vertices.Count != _targetMesh.Vertices.Count || _baseMesh.Faces.Count != _targetMesh.Faces.Count)
-            {
-                RhinoApp.WriteLine("基准网格和目标网格的顶点和面数需要相同,否则造成未预料的变形结果. 请重新选择");
-                return Result.Failure;
-            }
+
 
             //计时开始
             var sw = Stopwatch.StartNew();
@@ -370,7 +366,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
                         }
                     }
-                    catch (Exception)
+                    catch
                     {
                         // RhinoApp.WriteLine("对象处理出错: " + ex.Message);
                     }
@@ -385,9 +381,21 @@ namespace MyChangeTools.commands.FlowAlongMesh
                         successProcessObjs.AddRange(localList);
                 });
 
-            // ================= UI线程 =================
 
-            RhinoApp.InvokeOnUiThread((Action)(() =>
+            sw.Stop();
+            RhinoApp.WriteLine("成功: " + successCount);
+            RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
+            RhinoApp.WriteLine($"_successMorphPointCount: {_successMorphPointCount},_failMorphPointCount{_failMorphPointCount},_outsideMeshPointCount: {_outsideMeshPointCount},_insideMeshPointCount: {_insideMeshPointCount}");
+            RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
+            return (successProcessObjs, failProcessObjRefs);
+        }
+
+        public void ApplyResultToDoc((List<MorphedGeom> successProcessObjs, List<ObjRef> failProcessObjRefs) result)
+        {
+            var successProcessObjs = result.successProcessObjs;
+            var failProcessObjRefs = result.failProcessObjRefs;
+            uint undo = _doc.BeginUndoRecord("FlowAlongMesh");
+            try
             {
                 List<Guid> newIds = new List<Guid>(successProcessObjs.Count);
 
@@ -424,23 +432,13 @@ namespace MyChangeTools.commands.FlowAlongMesh
                     }
                 }
 
-                sw.Stop();
-                _doc.Views.Redraw();
-
-                RhinoApp.WriteLine("成功: " + successCount);
-                RhinoApp.WriteLine($"失败: {failCount}, 失败变形的对象将会添加到选择集中");
-                RhinoApp.WriteLine($"_successMorphPointCount: {_successMorphPointCount},_failMorphPointCount{_failMorphPointCount},_outsideMeshPointCount: {_outsideMeshPointCount},_insideMeshPointCount: {_insideMeshPointCount}");
-
-                RhinoApp.WriteLine("执行时间: " + sw.ElapsedMilliseconds + " ms");
-
                 foreach (ObjRef fo in failProcessObjRefs)
                     _doc.Objects.Select(fo.ObjectId);
-
-
-            }));
-
-
-            return Result.Success;
+            }
+            finally
+            {
+                _doc.EndUndoRecord(undo);
+            }
         }
 
 

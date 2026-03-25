@@ -109,7 +109,7 @@ namespace MyChangeTools.commands.FlowAlongMesh
         public int RebuildCurveCount { get; set; } = 80;
 
         [Option("BoundaryInfer")]
-        public bool BoundaryInfer { get; set; } = true;
+        public bool BoundaryInfer { get; set; } = false;
 
         [Option("BoundaryInferInternalSample")]
         public bool BoundaryInferInternalSample { get; set; } = true;
