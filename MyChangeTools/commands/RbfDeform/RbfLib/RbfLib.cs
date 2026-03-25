@@ -260,10 +260,10 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
                 return val;
             });
 
-            RhinoApp.WriteLine($"系数矩阵 A 构建完成，Frobenius范数 ≈ {A.FrobeniusNorm():F4}");
+            // RhinoApp.WriteLine($"系数矩阵 A 构建完成，Frobenius范数 ≈ {A.FrobeniusNorm():F4}");
 
             double lambda = 1e-8;
-            RhinoApp.WriteLine($"应用正则化 lambda = {lambda}");
+            // RhinoApp.WriteLine($"应用正则化 lambda = {lambda}");
 
             for (int i = 0; i < n; i++)
             {
@@ -277,20 +277,20 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
             var bx = DenseVector.OfEnumerable(deltas.Select(d => d.X));
             var by = DenseVector.OfEnumerable(deltas.Select(d => d.Y));
             var bz = DenseVector.OfEnumerable(deltas.Select(d => d.Z));
-
-            RhinoApp.WriteLine("右端向量 bx 前3个值：");
-            for (int i = 0; i < Math.Min(3, n); i++)
-                RhinoApp.WriteLine($"  bx[{i}] = {bx[i]:F6}");
+            // 
+            // RhinoApp.WriteLine("右端向量 bx 前3个值：");
+            // for (int i = 0; i < Math.Min(3, n); i++)
+            // RhinoApp.WriteLine($"  bx[{i}] = {bx[i]:F6}");
 
             try
             {
-                RhinoApp.WriteLine("开始求解线性方程组 Ax = bx ...");
+                // RhinoApp.WriteLine("开始求解线性方程组 Ax = bx ...");
                 var solx = A.Solve(bx);
 
-                RhinoApp.WriteLine("开始求解 Ay = by ...");
+                // RhinoApp.WriteLine("开始求解 Ay = by ...");
                 var soly = A.Solve(by);
 
-                RhinoApp.WriteLine("开始求解 Az = bz ...");
+                // RhinoApp.WriteLine("开始求解 Az = bz ...");
                 var solz = A.Solve(bz);
 
                 Wx = solx.ToArray();
@@ -298,11 +298,11 @@ namespace MyChangeTools.commands.RbfDeform.RBFLib
                 Wz = solz.ToArray();
 
                 // 打印前几个权重值
-                RhinoApp.WriteLine("求解完成，前几个权重值：");
-                for (int i = 0; i < Math.Min(4, n); i++)
-                {
-                    RhinoApp.WriteLine($"  Wx[{i}] = {Wx[i]:F10}   Wy[{i}] = {Wy[i]:F10}   Wz[{i}] = {Wz[i]:F10}");
-                }
+                // RhinoApp.WriteLine("求解完成，前几个权重值：");
+                // for (int i = 0; i < Math.Min(4, n); i++)
+                // {
+                // RhinoApp.WriteLine($"  Wx[{i}] = {Wx[i]:F10}   Wy[{i}] = {Wy[i]:F10}   Wz[{i}] = {Wz[i]:F10}");
+                // }
             }
             catch (Exception ex)
             {
