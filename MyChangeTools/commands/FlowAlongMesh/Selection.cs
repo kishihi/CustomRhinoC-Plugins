@@ -81,13 +81,13 @@ namespace MyChangeTools.commands.FlowAlongMesh
     public class SelectionOptions
     {
 
-        [Option("保持结构")]
+        [Option("PreserveStructure")]
         public bool PreserveStructure { get; set; } = false;
 
-        [Option("快速预览")]
+        [Option("QuickPreview")]
         public bool QuickPreview { get; set; } = true;
 
-        [Option("复制对象")]
+        [Option("IsCopy")]
         public bool IsCopy { get; set; } = false;
 
         [Option("Tolerance")]
@@ -190,12 +190,12 @@ namespace MyChangeTools.commands.FlowAlongMesh
             projectVector = Vector3d.Unset;
 
             var go = new GetOption();
-            go.SetCommandPrompt("选择Normal方向 (输入选项或通过两点定义方向, 默认 Unset)");
+            go.SetCommandPrompt("Select the Normal direction (enter the option or define the direction through two points, default Unset)");
 
-            int optX = go.AddOption("X轴");
-            int optY = go.AddOption("Y轴");
-            int optZ = go.AddOption("Z轴");
-            int optPick = go.AddOption("两点定义");
+            int optX = go.AddOption("XAxis");
+            int optY = go.AddOption("YAxis");
+            int optZ = go.AddOption("ZAxis");
+            int optPick = go.AddOption("DefineByTwoPt");
 
             var boolMap = new Dictionary<string, OptionToggle>();
             var intMap = new Dictionary<string, OptionInteger>();
