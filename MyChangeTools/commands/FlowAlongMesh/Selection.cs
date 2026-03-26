@@ -108,20 +108,20 @@ namespace MyChangeTools.commands.FlowAlongMesh
         [Option("MyGeomMorphRebuildCT")]
         public int RebuildCurveCount { get; set; } = 80;
 
-        [Option("BoundaryInfer")]
-        public bool BoundaryInfer { get; set; } = false;
+        // [Option("BoundaryInfer")]
+        // public bool BoundaryInfer { get; set; } = false;
 
-        [Option("BoundaryInferInternalSample")]
-        public bool BoundaryInferInternalSample { get; set; } = true;
+        // [Option("BoundaryInferInternalSample")]
+        // public bool BoundaryInferInternalSample { get; set; } = true;
 
-        [Option("BoundaryInferEdgeSample")]
-        public bool BoundaryInferEdgeSample { get; set; } = true;
+        // [Option("BoundaryInferEdgeSample")]
+        // public bool BoundaryInferEdgeSample { get; set; } = true;
 
-        [Option("BoundaryInferInternalSampleStep")]
-        public double BoundaryInferSampleStep { get; set; } = 3;
+        // [Option("BoundaryInferInternalSampleStep")]
+        // public double BoundaryInferSampleStep { get; set; } = 3;
 
-        [Option("BoundaryInferOutsideDistanceTol")]
-        public double BoundaryInferOutsideDistanceTol { get; set; } = 0.01;
+        // [Option("BoundaryInferOutsideDistanceTol")]
+        // public double BoundaryInferOutsideDistanceTol { get; set; } = 0.01;
 
     }
 
