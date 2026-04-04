@@ -51,8 +51,6 @@ namespace MyRhinoSelectTools.Commands.SelectIntersect
                 Point p1 = null;
                 Point p2 = null;
 
-
-
                 // mid data
                 Point3d[] intersectPoints;
                 Curve[] overlapCurves;

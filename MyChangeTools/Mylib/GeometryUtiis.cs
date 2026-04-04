@@ -1,7 +1,10 @@
-﻿using Rhino;
+﻿using MathNet.Numerics.Distributions;
+using MathNet.Numerics.RootFinding;
+using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
 using Rhino.Geometry;
+using Rhino.Geometry.Intersect;
 using Rhino.Input.Custom;
 using System;
 using System.Collections.Generic;
@@ -46,6 +49,88 @@ namespace MyChangeTools.Mylib
 
             return kinkParams;
         }
+
+        public static List<Point3d> GetObjsOutMeshBoundaryPoints(
+            Mesh mesh,
+            GeometryBase[] objs, 
+            double offsetDistance, 
+            double intersectTolerance)
+        {
+            var bps = GetMeshBoundaryNormalSweepFace(mesh, offsetDistance);
+            var pts = new List<Point3d>();
+            foreach (var bp in bps) { 
+                pts.AddRange(GetObjInsectWithBrepCurveKnotPoint(bp,objs,intersectTolerance));
+            }
+            return pts;
+        }
+
+        private static List<Brep> GetMeshBoundaryNormalSweepFace(Mesh mesh,double offsetDistance)
+        {
+            var outBreps = new List<Brep>();
+            if (mesh == null || !mesh.IsValid)
+                return outBreps;
+            var meshoffset1 = mesh.Offset(offsetDistance);
+            var meshoffset2 = mesh.Offset(-offsetDistance);
+            var nakedEdges1 = meshoffset1.GetNakedEdges();
+            var nakedEdges2 = meshoffset2.GetNakedEdges();
+            if(nakedEdges1.Length != nakedEdges2.Length)
+            {
+                return outBreps;
+            }
+            for(int i = 0; i < nakedEdges1.Length; i++)
+            {
+                var rails = new NurbsCurve[] { nakedEdges1[i].ToNurbsCurve(), nakedEdges2[i].ToNurbsCurve() };
+                var bps = Brep.CreateFromLoft(rails, Point3d.Unset, Point3d.Unset, LoftType.Normal, false);
+                outBreps.AddRange(bps);
+            }
+            return outBreps;
+        }
+
+        private static List<Point3d> GetObjInsectWithBrepCurveKnotPoint(
+            Brep brep,
+            GeometryBase[] objs,
+            double tolerance)
+        {
+            var iccurves = new List<Curve>();
+            var ickpts = new List<Point3d>();
+            foreach(var go in objs)
+            {
+                var obtype = go.ObjectType;
+                if(obtype == ObjectType.Curve)
+                {
+                    Intersection.CurveBrep(
+                        go as Curve, 
+                        brep, 
+                        tolerance, 
+                        out Curve[] overlapCurves,
+                        out Point3d[] intersectionPoints);
+                    iccurves.AddRange(overlapCurves);
+                    ickpts.AddRange(intersectionPoints);
+                }
+                Brep tobrep = ToBrepSafe(go);
+                if(tobrep != null)
+                {
+                    Intersection.BrepBrep(
+                        brep,
+                        tobrep,
+                        tolerance,
+                        out Curve[] intersectionCurves,
+                        out Point3d[] intersectionPoints
+                    );
+                    iccurves.AddRange(intersectionCurves);
+                    ickpts.AddRange(intersectionPoints);
+                }
+            }
+            foreach(var curve in iccurves)
+            {
+                var nc = curve.ToNurbsCurve();
+                var knots = nc.Knots;
+                ickpts.AddRange(knots.Select(t => nc.PointAt(t)));
+            }
+            return ickpts;
+        }
+
+
         public static List<Point3d> GetMeshBoundaryPoints(Mesh mesh)
         {
             var pts = new List<Point3d>();
@@ -65,6 +150,27 @@ namespace MyChangeTools.Mylib
             }
 
             return pts;
+        }
+
+        public static bool IsPointOutsideMesh(
+            Mesh mesh,
+            Point3d testpt,
+            double outsideDistanceTol
+            )
+        {
+            if (mesh == null || !mesh.IsValid)
+                return true;
+            int mp = mesh.ClosestPoint(testpt, out Point3d pointOnmesh, out Vector3d normalAtPoint, 0.0);
+            if(mp < 0 ) 
+                return true;
+            normalAtPoint.Unitize();
+            Vector3d rv = testpt - pointOnmesh;
+            double rvProjectNormalLength = Math.Abs(rv * normalAtPoint);
+            if (Math.Abs(rvProjectNormalLength - rv.Length) > outsideDistanceTol)
+            {
+                return true;
+            }
+            return false;
         }
 
         public static bool IsPointOutsideBrep(
@@ -100,6 +206,11 @@ namespace MyChangeTools.Mylib
             return false;
 
         }
+
+
+
+
+
         public static List<Point3d> SampleBoundingBoxSimple(BoundingBox box)
         {
             var pts = new List<Point3d>();

@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace MyChangeTools.commands.FlowAlongMesh
+namespace MyChangeTools.commands.FlowAlongMesh2
 {
 
     [AttributeUsage(AttributeTargets.Property)]
@@ -165,16 +165,70 @@ namespace MyChangeTools.commands.FlowAlongMesh
         }
 
 
-        public static Result SelectMesh(RhinoDoc doc, string prompt, out Mesh mesh)
+        public static Result SelectOneMesh(RhinoDoc doc, string prompt, out ObjRef objRef)
         {
-            mesh = null;
-            var rc = RhinoGet.GetOneObject(prompt, false, ObjectType.Mesh, out ObjRef objRef);
-            if (rc != Result.Success) return rc;
+            objRef = null;
+            var go = new GetObject();
+            go.SetCommandPrompt(prompt);
+            go.GeometryFilter = ObjectType.Mesh;
+            go.EnablePreSelect(false, true);
+            bool isFlip = false;
+            var isFlipToggle = new OptionToggle(false, "No", "Yes");
+            int isFlipToggleIndex = go.AddOptionToggle("FlipNormal", ref isFlipToggle);
+            using (var escHandler = new Mylib.CommandHandler.EscapeKeyEventHandler("（按 ESC 取消）"))
+            {
+                while (true)
+                {
+                    var res = go.Get();
+                    if (escHandler.EscapeKeyPressed)
+                    {
+                        RhinoApp.WriteLine("用户按下 ESC，命令已取消。");
+                        return Result.Nothing;
+                    }
 
-            mesh = objRef.Mesh();
+                    if (res == GetResult.Cancel)
+                    {
+                        RhinoApp.WriteLine("命令已取消");
+                        return Result.Nothing;
+                    }
 
-            if (mesh == null) return Result.Failure;
+                    if (res == GetResult.Option)
+                    {
+                        var chosen = go.Option();
+                        string name = chosen.EnglishName;
+                        int optindex = chosen.Index;
+                        if (optindex == isFlipToggleIndex)
+                        {
+                            isFlip = isFlipToggle.CurrentValue;
+                            RhinoApp.WriteLine($"{name} current : {isFlip.ToString()}");
+                        }
 
+                    }
+                    if (res == GetResult.Object)
+                    {
+                        objRef = go.Object(0);
+                        break;
+                    }
+                }
+            }
+            if (isFlip)
+            {
+                var mesh = objRef.Mesh();
+                mesh.Flip(true, true, false);
+                var oldid = objRef.ObjectId;
+                var newid = doc.Objects.Add(mesh);
+                objRef = new ObjRef(newid);
+                doc.Objects.Delete(oldid,true);
+                //doc.Objects.Replace(objRef.ObjectId, mesh);
+                //objRef = new ObjRef(objRef.ObjectId);//update ref cache
+            }
+            if (objRef.Geometry() == null || !objRef.Geometry().IsValid)
+            {
+                RhinoApp.WriteLine("Please select vaild mesh");
+                return Result.Failure;
+            }
+
+            //doc.Views.Redraw();
             doc.Objects.UnselectAll();
             return Result.Success;
         }

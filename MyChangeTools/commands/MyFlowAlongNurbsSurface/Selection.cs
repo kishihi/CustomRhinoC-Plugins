@@ -9,7 +9,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 
-namespace MyChangeTools.commands.FlowAlongMesh
+namespace MyChangeTools.commands.MyFlowAlongNurbsSurface
 {
 
     [AttributeUsage(AttributeTargets.Property)]
@@ -108,18 +108,6 @@ namespace MyChangeTools.commands.FlowAlongMesh
         [Option("MyGeomMorphRebuildCT")]
         public int RebuildCurveCount { get; set; } = 80;
 
-        [Option("BoundaryInfer")]
-        public bool BoundaryInfer { get; set; } = false;
-
-        [Option("BoundaryInferEdgeSample")]
-        public bool BoundaryInferEdgeSample { get; set; } = true;
-
-        [Option("BoundaryInferOffsetCheckDistance")]
-        public double BoundaryInferOffsetCheckDistance { get; set; } = 15;
-
-        [Option("BoundaryInferOutsideDistanceTol")]
-        public double BoundaryInferOutsideDistanceTol { get; set; } = 0.01;
-
     }
 
     public class Selection
@@ -164,16 +152,15 @@ namespace MyChangeTools.commands.FlowAlongMesh
             return Result.Success;
         }
 
-
-        public static Result SelectMesh(RhinoDoc doc, string prompt, out Mesh mesh)
+        public static Result SelectOneSurface(RhinoDoc doc, string prompt, out Surface surf)
         {
-            mesh = null;
-            var rc = RhinoGet.GetOneObject(prompt, false, ObjectType.Mesh, out ObjRef objRef);
+            surf = null;
+            var rc = RhinoGet.GetOneObject(prompt, false, ObjectType.Surface, out ObjRef objRef);
             if (rc != Result.Success) return rc;
 
-            mesh = objRef.Mesh();
+            surf = objRef.Surface();
 
-            if (mesh == null) return Result.Failure;
+            if (surf == null) return Result.Failure;
 
             doc.Objects.UnselectAll();
             return Result.Success;

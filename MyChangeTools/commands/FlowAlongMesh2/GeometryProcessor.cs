@@ -11,7 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 
-namespace MyChangeTools.commands.FlowAlongMesh
+namespace MyChangeTools.commands.FlowAlongMesh2
 {
 
     class MyPointFieldMorph : SpaceMorph
@@ -55,13 +55,6 @@ namespace MyChangeTools.commands.FlowAlongMesh
         private readonly Vector3d _limitNormalVector;
         private readonly double _tolerance;
 
-        private readonly SubD _baseSubD;
-        private readonly Brep _baseBrep;
-
-
-        private readonly SubD _targetSubD;
-        private readonly Brep _targetBrep;
-
         private readonly bool _IsCopy;
 
         private int _failMorphPointCount = 0;
@@ -84,21 +77,26 @@ namespace MyChangeTools.commands.FlowAlongMesh
         private delegate Point3d ProcessPointDelegate(Point3d pt);
 
 
-        public GeometryProcessor(RhinoDoc doc, ObjRef[] objRefs, Mesh baseMesh, Mesh targetMesh, Vector3d limitNormalVector, SelectionOptions selectionOptions)
+        public static Dictionary<Guid,Brep> CacheTransBrep = new Dictionary<Guid,Brep>();
+
+
+        public GeometryProcessor(
+            RhinoDoc doc,
+            ObjRef[] objRefs, 
+            ObjRef baseMeshRef, 
+            ObjRef targetMeshRef, 
+            Vector3d limitNormalVector, 
+            SelectionOptions selectionOptions)
         {
             _doc = doc;
             _objRefs = objRefs;
-            _baseMesh = baseMesh;
-            _targetMesh = targetMesh;
+            _baseMesh = baseMeshRef.Mesh();
+            _targetMesh = targetMeshRef.Mesh();
             _limitNormalVector = limitNormalVector;
             _tolerance = selectionOptions.Tolerance;
             _boundaryInfer = selectionOptions.BoundaryInfer;
             _boundaryInferOutsideDistanceTol = selectionOptions.BoundaryInferOutsideDistanceTol;
             _IsCopy = selectionOptions.IsCopy;
-            _targetSubD = SubD.CreateFromMesh(targetMesh);
-            _targetBrep = _targetSubD.ToBrep(SubDToBrepOptions.Default);
-            _baseSubD = SubD.CreateFromMesh(baseMesh);
-            _baseBrep = _baseSubD.ToBrep(SubDToBrepOptions.Default);
             ProcessPointDelegate ProcessPoint = ProcessPointDefault;
             if (_boundaryInfer)
             {
@@ -149,10 +147,11 @@ namespace MyChangeTools.commands.FlowAlongMesh
                 }
                 else
                 {
-                    RhinoApp.WriteLine("无法进行边界推算，物体没有在网格内部的点或者全部在网格外，物体至少需要一部分在网格内。物体将会缩在网格边界。");
+                    RhinoApp.WriteLine("不进行边界推算，物体没有在网格内部的点或者全部在网格外，物体至少需要一部分在网格内。超过网格边界的物体将会缩在网格边界。");
                 }
 
             }
+
             Func<Point3d, Point3d> LastProcessPoint = pt =>
             {
                 var newpt = ProcessPoint(pt);
@@ -188,94 +187,92 @@ namespace MyChangeTools.commands.FlowAlongMesh
             }
         }
 
-        public Point3d ProcessPointDefault(
-            Point3d p)
+        //base on mesh face smooth
+        Point3d ProcessPointDefault(Point3d p)
         {
             MeshPoint mp = _baseMesh.ClosestMeshPoint(p, 0.0);
+            double[] mpt = mp.T;
+            MeshFace mpFace1 = _baseMesh.Faces[mp.FaceIndex];
+            int[] mpFace1Vertexesindex = new int[] { mpFace1.A, mpFace1.B, mpFace1.C, mpFace1.D };
+            Vector3d[] mpVertexNormals1 =
+            mpFace1Vertexesindex.Select(
+                i => new Vector3d(_baseMesh.Normals[i].X, _baseMesh.Normals[i].Y, _baseMesh.Normals[i].Z)
+                ).ToArray();
+            Point3d[] mpFace1Vertexes = mpFace1Vertexesindex.Select(
+                i =>
+                new Point3d(_baseMesh.Vertices[i].X, _baseMesh.Vertices[i].Y, _baseMesh.Vertices[i].Z)
+                ).ToArray();
+            Vector3d itNormal1 =
+            mpt[0] * mpVertexNormals1[0]
+            + mpt[1] * mpVertexNormals1[1]
+            + mpt[2] * mpVertexNormals1[2]
+            + mpt[3] * mpVertexNormals1[3];
+            itNormal1.Unitize();
+            Point3d mppoint =
+            mpt[0] * mpFace1Vertexes[0]
+            + mpt[1] * mpFace1Vertexes[1]
+            + mpt[2] * mpFace1Vertexes[2]
+            + mpt[3] * mpFace1Vertexes[3];
+            double height = (p - mppoint) * 
+                (_limitNormalVector!=Vector3d.Unset ?_limitNormalVector : itNormal1);
 
-            Point3d q = mp.Point;
+            //re-get mp . vertexes order may diff between two mesh
+            MeshPoint mp2 = _targetMesh.ClosestMeshPoint(_targetMesh.PointAt(mp), 0.0);
+            double[] mpt2 = mp2.T;
+            MeshFace mpFace2 = _targetMesh.Faces[mp2.FaceIndex];
+            int[] mpFace2Vertexesindex = new int[] { mpFace2.A, mpFace2.B, mpFace2.C, mpFace2.D };
+            Vector3d[] mpVertexNormals2 =
+            mpFace2Vertexesindex.Select(
+                i => new Vector3d(_targetMesh.Normals[i].X, _targetMesh.Normals[i].Y, _targetMesh.Normals[i].Z)
+                ).ToArray();
+            Point3d[] mpFace2Vertexes = mpFace2Vertexesindex.Select(
+                i =>
+                new Point3d(_targetMesh.Vertices[i].X, _targetMesh.Vertices[i].Y, _targetMesh.Vertices[i].Z)
+                ).ToArray();
+            Vector3d itNormal2 =
+            mpt2[0] * mpVertexNormals2[0]
+            + mpt2[1] * mpVertexNormals2[1]
+            + mpt2[2] * mpVertexNormals2[2]
+            + mpt2[3] * mpVertexNormals2[3];
+            itNormal2.Unitize();
+            Point3d mppoint2 =
+            mpt2[0] * mpFace2Vertexes[0]
+            + mpt2[1] * mpFace2Vertexes[1]
+            + mpt2[2] * mpFace2Vertexes[2]
+            + mpt2[3] * mpFace2Vertexes[3];
+            return mppoint2 + height *
+                (_limitNormalVector != Vector3d.Unset ? _limitNormalVector : itNormal2);
 
-            Vector3d n;
 
-            if (_limitNormalVector == Vector3d.Unset)
-            {
-                if (_baseBrep.ClosestPoint(
-                    q,
-                    out Point3d closestPoint0,
-                    out _,
-                    out _,
-                    out _,
-                    0,
-                    out Vector3d normal0)
-                )
-                {
-                    q = closestPoint0;
-                    n = normal0;
-                }
-                else
-                {
-                    n = _baseMesh.NormalAt(mp);
-                }
-            }
-            else
-            {
-                n = _limitNormalVector;
-                if (_baseBrep.ClosestPoint(
-                    q,
-                    out Point3d closestPoint0,
-                    out _,
-                    out _,
-                    out _,
-                    0,
-                    out Vector3d normal0)
-                )
-                {
-                    q = closestPoint0;
-                }
-            }
+            //Vector3d[] mpVertexNormals2 =
+            //    mpFace1Vertexesindex.Select(
+            //        i => new Vector3d(_targetMesh.Normals[i].X, _targetMesh.Normals[i].Y, _targetMesh.Normals[i].Z)
+            //        ).ToArray();
+            //Point3d[] mpFace2Vertexes =
+            //    mpFace1Vertexesindex.Select(
+            //        i =>
+            //        new Point3d(_targetMesh.Vertices[i].X, _targetMesh.Vertices[i].Y, _targetMesh.Vertices[i].Z)
+            //        ).ToArray();
+            //Vector3d itNormal2 =
+            //mpt[0] * mpVertexNormals2[0]
+            //+ mpt[1] * mpVertexNormals2[1]
+            //+ mpt[2] * mpVertexNormals2[2]
+            //+ mpt[3] * mpVertexNormals2[3];
+            //itNormal2.Unitize();
+            //Point3d mppoint2 =
+            //mpt[0] * mpFace2Vertexes[0]
+            //+ mpt[1] * mpFace2Vertexes[1]
+            //+ mpt[2] * mpFace2Vertexes[2]
+            //+ mpt[3] * mpFace2Vertexes[3];
 
-            double height = (p - q) * n;
-
-            Point3d q2 = _targetMesh.PointAt(mp);
-            Vector3d n2;
-
-            //Point3d q3
-            //_targetBrep.ClosestPoint()
-            if (_targetBrep.ClosestPoint(
-                    q2,
-                    out Point3d closestPoint,
-                    out ComponentIndex ci,
-                    out double s,
-                    out double t,
-                    0,
-                    out Vector3d normal
-                )
-                )
-            {
-                q2 = closestPoint;
-                n2 = normal;
-            }
-
-            else
-
-            {
-                if (_limitNormalVector == Vector3d.Unset)
-                {
-                    n2 = _targetMesh.NormalAt(mp);
-                }
-                else
-                {
-                    n2 = _limitNormalVector;
-                }
-            }
-            return q2 + n2 * height;
-
+            //return mppoint2 + height *
+            //    (_limitNormalVector != Vector3d.Unset ? _limitNormalVector:itNormal2);
         }
 
         public Point3d ProcessPointBoundaryInfer(
             Point3d p)
         {
-            if (Mylib.GeometryUtils.IsPointOutsideBrep(_baseBrep, p, _boundaryInferOutsideDistanceTol))
+            if (Mylib.GeometryUtils.IsPointOutsideMesh(_baseMesh, p, _boundaryInferOutsideDistanceTol))
             {
                 _outsideMeshPointCount++;
                 return _rbfDeformer.Evaluate(p);
@@ -452,3 +449,4 @@ namespace MyChangeTools.commands.FlowAlongMesh
 
     }
 }
+
