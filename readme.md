@@ -27,5 +27,5 @@
 5. DualSurfaceMapping 将在面A1和面B1的物体,沿着投影方向变换到面A2和B2之间,待改进..
 6. RbfDeform 选择多组基准曲线和目标曲线,可选限制线. 基于RBF把多个物体平滑变换过去.待改进..
 7. FlowAlongMesh 网格面数和顶点数相同的两个网格, 能把物体从一个网格流动到另一个网格.待改进..
-8. RemoveCurveOvrelap 去除多条曲线之间的以及自相交重叠线段部分.
+8. RemoveCurveOvrelap 去除多条曲线之间的以及自相交重叠线段部分.待改进..
 9. OffsetPointsOnCurve 左右偏移曲线上面的点
