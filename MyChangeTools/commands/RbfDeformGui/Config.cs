@@ -78,6 +78,9 @@ namespace MyChangeTools.commands.RbfDeformGui
         public double InfectRadius { get; set; }
         //径向基函数ID，0代表默认的Multiquadric
         public int PhiFunctionID { get; set; }
+        //Rbf维度掩码，默认是XYZ都参与变形
+        public RBFLib.RbfDimension DimensionMask { get; set; }
+
     }
 
     internal static class ConfigManager
@@ -126,7 +129,8 @@ namespace MyChangeTools.commands.RbfDeformGui
                 {
                     RBFAddLinearSystem = false,
                     InfectRadius = 0,
-                    PhiFunctionID = 0
+                    PhiFunctionID = 0,
+                    DimensionMask = RBFLib.RbfDimension.XYZ
                 }
             };
         }

@@ -48,6 +48,25 @@ namespace MyChangeTools.commands.RbfDeformGui
                 Config.RBFConfig.PhiFunctionID = phiFucDropDown.SelectedIndex;
             };
 
+            var dimensionOptions = System.Enum.GetValues(typeof(RBFLib.RbfDimension))
+            .Cast<RBFLib.RbfDimension>()
+            .ToList();
+            var dimensionDropDown = new DropDown
+            {
+                DataStore = dimensionOptions.Select(d => d.ToString()).ToList(),
+                SelectedIndex = dimensionOptions.IndexOf(Config.RBFConfig.DimensionMask)
+            };
+
+            dimensionDropDown.SelectedIndexChanged += (s, e) =>
+            {
+                int idx = dimensionDropDown.SelectedIndex;
+                if (idx >= 0 && idx < dimensionOptions.Count)
+                {
+                    Config.RBFConfig.DimensionMask = dimensionOptions[idx];
+                    RhinoApp.WriteLine($"Set DimensionMask = {Config.RBFConfig.DimensionMask}");
+                }
+            };
+
             var layout = new DynamicLayout
             {
                 Padding = 5,
@@ -57,6 +76,7 @@ namespace MyChangeTools.commands.RbfDeformGui
             layout.AddRow(linear);
             layout.AddRow("Influence Radius", radius);
             layout.AddRow("Phi Function", phiFucDropDown);
+            layout.AddRow("Compute Dimension", dimensionDropDown);
 
             return new GroupBox
             {

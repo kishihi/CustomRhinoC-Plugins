@@ -76,6 +76,10 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 
                 if (_rbfDeformer.Phi != null)
                 {
+                    //先设置维度掩码，再求解权重
+                    
+                    _rbfDeformer.DimensionMask = _config.RBFConfig.DimensionMask;
+
                     _rbfDeformer.SolveWeights();
 
                     RhinoApp.WriteLine($"Length {_rbfDeformer.Wx.Length} WxMax: {_rbfDeformer.Wx.Max()},WxMin:{_rbfDeformer.Wx.Min()}");

@@ -34,6 +34,19 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
         }
     }
 
+    // 维度枚举
+    [Flags]
+    public enum RbfDimension
+    {
+        X = 1,
+        Y = 2,
+        Z = 4,
+        XY = X | Y,
+        YZ = Y | Z,
+        XZ = X | Z,
+        XYZ = X | Y | Z
+    }
+
     //抽象类
     public abstract class RBFDeformer
     {
@@ -43,9 +56,10 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
         public double[] Wz { get; protected set; }
 
         // 原始控制点和位移
-        protected List<Point3d> sourcePts { get; private set; }
-        protected List<Vector3d> deltas { get; private set; }
+        protected List<Point3d> SourcePts { get; private set; }
+        protected List<Vector3d> Deltas { get; private set; }
 
+        public RbfDimension DimensionMask { get; set; } = RbfDimension.XYZ;
 
         // 核函数委托，实例化后可以自由替换
         public Func<double, double> Phi { get; set; } = null;
@@ -64,15 +78,37 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
             if (sourcePoints.Count != deltas.Count)
                 throw new ArgumentException("SourcePoints count must equal Deltas count");
 
-            this.sourcePts = sourcePoints;
-            this.deltas = deltas;
+            this.SourcePts = sourcePoints;
+            this.Deltas = deltas;
 
             RhinoApp.WriteLine($"RBFDeformer 初始化成功，控制点数量：{sourcePoints.Count}");
         }
 
         public abstract void SolveWeights();
 
+        // 评估计算
+        protected bool HasNanWx = false;
+        protected bool HasNanWy = false;
+        protected bool HasNanWz = false;
+
         public abstract Point3d Evaluate(Point3d p);
+
+        // 计算两点之间的距离，根据维度掩码选择性地计算
+        protected double ComputeDistance(Point3d a, Point3d b)
+        {
+            double dx = 0, dy = 0, dz = 0;
+
+            if (DimensionMask.HasFlag(RbfDimension.X))
+                dx = a.X - b.X;
+
+            if (DimensionMask.HasFlag(RbfDimension.Y))
+                dy = a.Y - b.Y;
+
+            if (DimensionMask.HasFlag(RbfDimension.Z))
+                dz = a.Z - b.Z;
+
+            return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
 
 
     }
@@ -85,137 +121,211 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
         private double A0y, A1y, A2y, A3y;
         private double A0z, A1z, A2z, A3z;
 
+        private bool HasNanAffineX = false;
+        private bool HasNanAffineY = false;
+        private bool HasNanAffineZ = false;
+
         public RBFDeformerWithLinearSystem(List<Point3d> sourcePts, List<Vector3d> deltas) : base(sourcePts, deltas)
         {
         }
 
         public override void SolveWeights()
         {
-            int n = sourcePts.Count;
-            int m = n + 4;
+            int n = SourcePts.Count;
 
-            RhinoApp.WriteLine($"开始构建 {m}×{m} TPS 系数矩阵...");
+            // 构造参与 affine 的列数量
+            List<RbfDimension> activeDims = new List<RbfDimension>();
+            if (DimensionMask.HasFlag(RbfDimension.X)) activeDims.Add(RbfDimension.X);
+            if (DimensionMask.HasFlag(RbfDimension.Y)) activeDims.Add(RbfDimension.Y);
+            if (DimensionMask.HasFlag(RbfDimension.Z)) activeDims.Add(RbfDimension.Z);
+
+            int affCols = 1 + activeDims.Count; // 1列常数 + 参与维度列
+            int m = n + affCols;
+
+            RhinoApp.WriteLine($"构建 {m}×{m} TPS 系数矩阵, 控制点数量：{n}, 维度掩码：{DimensionMask}");
 
             var A = DenseMatrix.Create(m, m, 0);
 
-            // K matrix
+            // ------------------------
+            // K 矩阵 n×n phi(r)
+            // ------------------------
             for (int i = 0; i < n; i++)
             {
                 for (int j = 0; j < n; j++)
                 {
-                    double dist = sourcePts[i].DistanceTo(sourcePts[j]);
-                    A[i, j] = Phi(dist);
+                    double r = ComputeDistance(SourcePts[i], SourcePts[j]);
+                    A[i, j] = Phi(r);
                 }
             }
 
-            // P matrix
+            // ------------------------
+            // P 矩阵 n×affCols
+            // ------------------------
             for (int i = 0; i < n; i++)
             {
-                var p = sourcePts[i];
-
-                A[i, n + 0] = 1.0;
-                A[i, n + 1] = p.X;
-                A[i, n + 2] = p.Y;
-                A[i, n + 3] = p.Z;
+                int col = n;
+                A[i, col++] = 1.0; // 常数列
+                foreach (var dim in activeDims)
+                {
+                    switch (dim)
+                    {
+                        case RbfDimension.X: A[i, col++] = SourcePts[i].X; break;
+                        case RbfDimension.Y: A[i, col++] = SourcePts[i].Y; break;
+                        case RbfDimension.Z: A[i, col++] = SourcePts[i].Z; break;
+                    }
+                }
             }
 
-            // P^T matrix
+            // ------------------------
+            // P^T 矩阵 affCols×n
+            // ------------------------
             for (int i = 0; i < n; i++)
             {
-                var p = sourcePts[i];
-
-                A[n + 0, i] = 1.0;
-                A[n + 1, i] = p.X;
-                A[n + 2, i] = p.Y;
-                A[n + 3, i] = p.Z;
+                int row = n;
+                A[row++, i] = 1.0; // 常数列
+                foreach (var dim in activeDims)
+                {
+                    switch (dim)
+                    {
+                        case RbfDimension.X: A[row++, i] = SourcePts[i].X; break;
+                        case RbfDimension.Y: A[row++, i] = SourcePts[i].Y; break;
+                        case RbfDimension.Z: A[row++, i] = SourcePts[i].Z; break;
+                    }
+                }
             }
 
-            // 正则化
+            // ------------------------
+            // 正则化，对 K 对角线加 lambda
+            // ------------------------
             double lambda = 1e-8;
             for (int i = 0; i < n; i++)
-            {
                 A[i, i] += lambda;
-            }
 
+            // ------------------------
             // 构造 RHS
-            var bx = DenseVector.Create(m, 0);
-            var by = DenseVector.Create(m, 0);
-            var bz = DenseVector.Create(m, 0);
+            // ------------------------
+            var bx = DenseVector.Create(m, 0.0);
+            var by = DenseVector.Create(m, 0.0);
+            var bz = DenseVector.Create(m, 0.0);
 
             for (int i = 0; i < n; i++)
             {
-                bx[i] = deltas[i].X;
-                by[i] = deltas[i].Y;
-                bz[i] = deltas[i].Z;
+                if (DimensionMask.HasFlag(RbfDimension.X)) bx[i] = Deltas[i].X;
+                if (DimensionMask.HasFlag(RbfDimension.Y)) by[i] = Deltas[i].Y;
+                if (DimensionMask.HasFlag(RbfDimension.Z)) bz[i] = Deltas[i].Z;
             }
+
+            // ------------------------
+            // 初始化权重和 affine
+            // ------------------------
+            Wx = new double[n];
+            Wy = new double[n];
+            Wz = new double[n];
+
+            A0x = A1x = A2x = A3x = 0;
+            A0y = A1y = A2y = A3y = 0;
+            A0z = A1z = A2z = A3z = 0;
 
             try
             {
-                RhinoApp.WriteLine("求解 TPS 系统...");
 
-                var solx = A.Solve(bx);
-                var soly = A.Solve(by);
-                var solz = A.Solve(bz);
+                // X 维
+                if (DimensionMask.HasFlag(RbfDimension.X))
+                {
+                    var solx = A.Solve(bx);
+                    Wx = solx.SubVector(0, n).ToArray();
 
-                Wx = solx.SubVector(0, n).ToArray();
-                Wy = soly.SubVector(0, n).ToArray();
-                Wz = solz.SubVector(0, n).ToArray();
+                    // affine 系数
+                    A0x = solx[n + 0];
+                    int idx = 1;
+                    foreach (var dim in activeDims)
+                    {
+                        switch (dim)
+                        {
+                            case RbfDimension.X: A1x = solx[n + idx++]; break;
+                            case RbfDimension.Y: A2x = solx[n + idx++]; break;
+                            case RbfDimension.Z: A3x = solx[n + idx++]; break;
+                        }
+                    }
+                }
 
-                A0x = solx[n + 0];
-                A1x = solx[n + 1];
-                A2x = solx[n + 2];
-                A3x = solx[n + 3];
+                // Y 维
+                if (DimensionMask.HasFlag(RbfDimension.Y))
+                {
+                    var soly = A.Solve(by);
+                    Wy = soly.SubVector(0, n).ToArray();
 
-                A0y = soly[n + 0];
-                A1y = soly[n + 1];
-                A2y = soly[n + 2];
-                A3y = soly[n + 3];
+                    A0y = soly[n + 0];
+                    int idx = 1;
+                    foreach (var dim in activeDims)
+                    {
+                        switch (dim)
+                        {
+                            case RbfDimension.X: A1y = soly[n + idx++]; break;
+                            case RbfDimension.Y: A2y = soly[n + idx++]; break;
+                            case RbfDimension.Z: A3y = soly[n + idx++]; break;
+                        }
+                    }
+                }
 
-                A0z = solz[n + 0];
-                A1z = solz[n + 1];
-                A2z = solz[n + 2];
-                A3z = solz[n + 3];
+                // Z 维
+                if (DimensionMask.HasFlag(RbfDimension.Z))
+                {
+                    var solz = A.Solve(bz);
+                    Wz = solz.SubVector(0, n).ToArray();
+
+                    A0z = solz[n + 0];
+                    int idx = 1;
+                    foreach (var dim in activeDims)
+                    {
+                        switch (dim)
+                        {
+                            case RbfDimension.X: A1z = solz[n + idx++]; break;
+                            case RbfDimension.Y: A2z = solz[n + idx++]; break;
+                            case RbfDimension.Z: A3z = solz[n + idx++]; break;
+                        }
+                    }
+                }
 
                 RhinoApp.WriteLine("RBF 权重求解完成");
             }
             catch (Exception ex)
             {
-                RhinoApp.WriteLine("求解失败");
-                RhinoApp.WriteLine(ex.Message);
-
+                RhinoApp.WriteLine("求解失败：" + ex.Message);
                 Wx = Wy = Wz = null;
+                throw new InvalidOperationException("Weights not valid");
             }
-
-            bool hasNanWx = Wx.Any(double.IsNaN);
-            bool hasNanWy = Wy.Any(double.IsNaN);
-            bool hasNanWz = Wz.Any(double.IsNaN);
-
-            if (hasNanWx || hasNanWy || hasNanWz)
+            finally
             {
-                RhinoApp.WriteLine("Solve Fail, 采样点可能共线或者共平面");
-                throw new InvalidOperationException("Weights not Vaild");
+                // 检查是否有 NaN
+                HasNanWx = Wx != null && Wx.Any(double.IsNaN);
+                HasNanWy = Wy != null && Wy.Any(double.IsNaN);
+                HasNanWz = Wz != null && Wz.Any(double.IsNaN);
+
+                HasNanAffineX = double.IsNaN(A0x) || double.IsNaN(A1x) || double.IsNaN(A2x) || double.IsNaN(A3x);
+                HasNanAffineY = double.IsNaN(A0y) || double.IsNaN(A1y) || double.IsNaN(A2y) || double.IsNaN(A3y);
+                HasNanAffineZ = double.IsNaN(A0z) || double.IsNaN(A1z) || double.IsNaN(A2z) || double.IsNaN(A3z);
+
+                if (HasNanWx || HasNanWy || HasNanWz || HasNanAffineX || HasNanAffineY || HasNanAffineZ)
+                {
+                    RhinoApp.WriteLine("警告：权重或仿射系数包含 NaN，可能导致变形失败");
+                    throw new InvalidOperationException("Weights not valid");
+                }
             }
-
-
-            RhinoApp.WriteLine("RBFDeformer 构造完成");
-
-
         }
 
         public override Point3d Evaluate(Point3d p)
         {
-            if (Wx == null)
-                throw new InvalidOperationException("Weights not initialized");
 
             double ox = 0;
             double oy = 0;
             double oz = 0;
 
-            int n = sourcePts.Count;
+            int n = SourcePts.Count;
 
             for (int i = 0; i < n; i++)
             {
-                double r = p.DistanceTo(sourcePts[i]);
+                double r = ComputeDistance(p, SourcePts[i]);
                 double phi = Phi(r);
 
                 ox += Wx[i] * phi;
@@ -239,62 +349,56 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
     public class RBFDeformerCommon : RBFDeformer
     {
 
-
         public RBFDeformerCommon(List<Point3d> sourcePts, List<Vector3d> deltas) : base(sourcePts, deltas)
         {
         }
 
         public override void SolveWeights()
         {
-            int n = sourcePts.Count;
-            RhinoApp.WriteLine($"开始构建 {n}×{n} 系数矩阵 A...");
+            int n = SourcePts.Count;
 
+            //nx n 的系数矩阵 A phi(r) 矩阵
             var A = DenseMatrix.Create(n, n, (i, j) =>
             {
-                double dist = sourcePts[i].DistanceTo(sourcePts[j]);
+                double dist = ComputeDistance(SourcePts[i], SourcePts[j]);
                 double val = Phi(dist);
                 return val;
             });
-
-            RhinoApp.WriteLine($"系数矩阵 A 构建完成，Frobenius范数 ≈ {A.FrobeniusNorm():F4}");
-
+            // 正则化，增加对角线元素，防止矩阵奇异
             double lambda = 1e-8;
-            RhinoApp.WriteLine($"应用正则化 lambda = {lambda}");
 
             for (int i = 0; i < n; i++)
             {
                 A[i, i] += lambda;
             }
 
-            var bx = DenseVector.OfEnumerable(deltas.Select(d => d.X));
-            var by = DenseVector.OfEnumerable(deltas.Select(d => d.Y));
-            var bz = DenseVector.OfEnumerable(deltas.Select(d => d.Z));
-
-            RhinoApp.WriteLine("右端向量 bx 前3个值：");
-            for (int i = 0; i < Math.Min(3, n); i++)
-                RhinoApp.WriteLine($"  bx[{i}] = {bx[i]:F6}");
+            // 构造 RHS 向量 , if a dimension is not involved in deformation, its corresponding RHS component remains 0
+            var bx = DenseVector.OfEnumerable(Deltas.Select(d => DimensionMask.HasFlag(RbfDimension.X) ? d.X : 0.0));
+            var by = DenseVector.OfEnumerable(Deltas.Select(d => DimensionMask.HasFlag(RbfDimension.Y) ? d.Y : 0.0));
+            var bz = DenseVector.OfEnumerable(Deltas.Select(d => DimensionMask.HasFlag(RbfDimension.Z) ? d.Z : 0.0));
 
             try
             {
-                RhinoApp.WriteLine("开始求解线性方程组 Ax = bx ...");
-                var solx = A.Solve(bx);
-
-                RhinoApp.WriteLine("开始求解 Ay = by ...");
-                var soly = A.Solve(by);
-
-                RhinoApp.WriteLine("开始求解 Az = bz ...");
-                var solz = A.Solve(bz);
-
-                Wx = solx.ToArray();
-                Wy = soly.ToArray();
-                Wz = solz.ToArray();
-
-                // 打印前几个权重值
-                RhinoApp.WriteLine("求解完成，前几个权重值：");
-                for (int i = 0; i < Math.Min(4, n); i++)
+                // 默认Wx, Wy, Wz为0，只有参与变形的维度才会被求解
+                Wx = new double[n];
+                Wy = new double[n];
+                Wz = new double[n];
+                if (DimensionMask.HasFlag(RbfDimension.X))
                 {
-                    RhinoApp.WriteLine($"  Wx[{i}] = {Wx[i]:F10}   Wy[{i}] = {Wy[i]:F10}   Wz[{i}] = {Wz[i]:F10}");
+                    var solx = A.Solve(bx);
+                    Wx = solx.ToArray();
                 }
+                if (DimensionMask.HasFlag(RbfDimension.Y))
+                {
+                    var soly = A.Solve(by);
+                    Wy = soly.ToArray();
+                }
+                if (DimensionMask.HasFlag(RbfDimension.Z))
+                {
+                    var solz = A.Solve(bz);
+                    Wz = solz.ToArray();
+                }
+
             }
             catch (Exception ex)
             {
@@ -312,33 +416,36 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 
                 Wx = Wy = Wz = null; // 标记失败
             }
+            finally
+            {
+                // 检查是否有 NaN
+                HasNanWx = Wx != null && Wx.Any(double.IsNaN);
+                HasNanWy = Wy != null && Wy.Any(double.IsNaN);
+                HasNanWz = Wz != null && Wz.Any(double.IsNaN);
+
+                if (HasNanWx || HasNanWy || HasNanWz)
+                {
+                    RhinoApp.WriteLine("警告：权重包含 NaN，可能导致变形失败");
+                    throw new InvalidOperationException("Weights not valid");
+                }
+            }
 
             RhinoApp.WriteLine("RBFDeformer 构造完成");
         }
 
         public override Point3d Evaluate(Point3d p)
         {
-            if (Wx == null || Wy == null || Wz == null)
-            {
-                RhinoApp.WriteLine("Evaluate 失败：权重尚未成功计算");
-                throw new InvalidOperationException("Weights not initialized");
-                //return Point3d.Unset;
-            }
-
             double ox = 0.0, oy = 0.0, oz = 0.0;
-            int n = sourcePts.Count;
-
+            int n = SourcePts.Count;
             for (int i = 0; i < n; i++)
             {
-                double r = p.DistanceTo(sourcePts[i]);
+                double r = ComputeDistance(p, SourcePts[i]);
                 double phi = Phi(r);
                 ox += Wx[i] * phi;
                 oy += Wy[i] * phi;
                 oz += Wz[i] * phi;
             }
-
             var result = new Point3d(p.X + ox, p.Y + oy, p.Z + oz);
-
             return result;
         }
     }
