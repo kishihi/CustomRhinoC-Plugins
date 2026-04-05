@@ -36,7 +36,7 @@ namespace MyChangeTools.commands.RbfDeformGui
         public SampleConfig SampleConfig { get; set; }
         public RBFConfig RBFConfig { get; set; }
 
-        public Dictionary<int, string> PhiIndexFunNameDict = RBFLib.RBFPhiFunctions.PhiIndexFunNameDict;
+        // public Dictionary<int, string> PhiIndexFunNameDict = RBFLib.RBFPhiFunctions.PhiIndexFunNameDict;
 
     }
     internal class SpaceMorphConfig
@@ -65,6 +65,10 @@ namespace MyChangeTools.commands.RbfDeformGui
         public bool MatchMeshByCoordinate { get; set; }
         //在曲线上的采样点距离
         public double CurveSampleDistance { get; set; }
+        //基准曲面和目标曲面采样方式
+        public int SurfaceSampleMethod { get; set; }
+        //基准曲面和目标曲面采样向量
+        public Vector3d SurfaceSampleDirection { get; set; }
     }
     internal class RBFConfig
     {
@@ -113,7 +117,9 @@ namespace MyChangeTools.commands.RbfDeformGui
                 {
                     CurveSampleByParameter = false,
                     MatchMeshByCoordinate = true,
-                    CurveSampleDistance = 1
+                    CurveSampleDistance = 1,
+                    SurfaceSampleMethod = 0,
+                    SurfaceSampleDirection = Vector3d.Unset
                 },
 
                 RBFConfig = new RBFConfig

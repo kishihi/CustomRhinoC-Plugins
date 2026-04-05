@@ -3,7 +3,6 @@ using Eto.Forms;
 using Rhino.DocObjects;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.Eventing.Reader;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +13,8 @@ namespace MyChangeTools.commands.RbfDeformGui
         Button applyButton;
         Button undoButton;
         CancellationTokenSource _cts;
+
+        Config Config => ConfigManager.Current;
 
         Control CreateProcessButtons()
         {

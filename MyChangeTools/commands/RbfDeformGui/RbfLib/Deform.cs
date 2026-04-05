@@ -6,7 +6,7 @@ using System.Linq;
 namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 {
 
-    internal class Deform
+    internal partial class Deform
     {
 
         private readonly List<Point3d> _srcPoints = new List<Point3d>();
@@ -14,6 +14,16 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
         private readonly RBFDeformer _rbfDeformer;
 
         private readonly Config _config;
+
+        static readonly public Dictionary<int, string> SurfaceMappingMethod = new Dictionary<int, string>
+        {
+            {0, "UVCorrespond"},
+            {1, "XAxis"},
+            {2, "YAxis"},
+            {3, "ZAxis"},
+            {4,"Normal"},
+            {5,"TwoPtDefine"}
+        };
 
         public Deform(
             Rhino.DocObjects.ObjRef[] baseObjRfs,
@@ -106,6 +116,14 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     RhinoApp.WriteLine("Every baseObj ObjectType Must equal to targetObj ObjectType");
                     throw new InvalidOperationException("Every baseObj ObjectType Must equal to targetObj ObjectType");
                 }
+
+                //如果是挤出物体，先转换为曲面再采样
+                if (baseobj.ObjectType == Rhino.DocObjects.ObjectType.Extrusion)
+                {
+                    baseobj = (baseobj as Extrusion).ToBrep();
+                    targetobj = (targetobj as Extrusion).ToBrep();
+                }
+
                 if (baseobj.ObjectType == Rhino.DocObjects.ObjectType.Curve)
                 {
                     var baseCurve = baseObjRfs[i].Curve();
@@ -113,9 +131,9 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     int count = (int)Math.Ceiling(Math.Min(baseCurve.GetLength(), targetCurve.GetLength()) / _config.SampleConfig.CurveSampleDistance + 1);
                     int successCount;
                     if (!_config.SampleConfig.CurveSampleByParameter)
-                        allSampleBools.Add(AddDeltasFromTwoCurveSamplePointsByClosestPoint(baseCurve, targetCurve, count, out successCount));
+                        allSampleBools.Add(AddCurveMapByClosestPoint(baseCurve, targetCurve, count, out successCount));
                     else
-                        allSampleBools.Add(AddDeltasFromTwoCurveSamplePointsByLength(baseCurve, targetCurve, count, out successCount));
+                        allSampleBools.Add(AddCurveMapByParameter(baseCurve, targetCurve, count, out successCount));
                     if (successCount > 0)
                         RhinoApp.WriteLine($"曲线对{i + 1} 成功采样了{successCount}个点");
                     else
@@ -128,9 +146,9 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     var ok = false;
                     int successCount;
                     if (!_config.SampleConfig.MatchMeshByCoordinate)
-                        ok = AddDeltasFromTwoMeshByVertexOrder(baseMesh, targetMesh, out successCount);
+                        ok = AddMeshMapByVertexOrder(baseMesh, targetMesh, out successCount);
                     else
-                        ok = AddDeltasFromTwoMeshByCoordinate(baseMesh, targetMesh, out successCount);
+                        ok = AddMeshMapByCoordinate(baseMesh, targetMesh, out successCount);
                     if (ok)
                     {
                         RhinoApp.WriteLine($"Mesh对{i + 1} 成功采样了{successCount}个点");
@@ -149,20 +167,43 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     targetPts.Add(((Point)targetobj).Location);
 
                 }
-
                 else if (baseobj.ObjectType == Rhino.DocObjects.ObjectType.Surface)
                 {
 
                     var baseSrf = baseObjRfs[i].Surface().ToNurbsSurface();
                     var targetSrf = targetObjRfs[i].Surface().ToNurbsSurface();
-
-                    //uv count必须一样，才能一一对应采样点对计算增量
-                    if (baseSrf.Points.CountU != targetSrf.Points.CountU || baseSrf.Points.CountV != targetSrf.Points.CountV)
+                    int successCount = 0;
+                    var ok = false;
+                    switch (_config.SampleConfig.SurfaceSampleMethod)
                     {
-                        RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
-                        throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                        case 0:
+                            //uv count必须一样，才能一一对应采样点对计算增量
+                            if (baseSrf.Points.CountU != targetSrf.Points.CountU || baseSrf.Points.CountV != targetSrf.Points.CountV)
+                            {
+                                RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                                throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                            }
+                            ok = AddSurfaceMapByUVCorrespond(baseSrf, targetSrf, out successCount);
+                            break;
+                        case 1:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.XAxis, out successCount);
+                            break;
+                        case 2:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.YAxis, out successCount);
+                            break;
+                        case 3:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.ZAxis, out successCount);
+                            break;
+                        case 4:
+                            ok = AddSurfaceMapByNormalDirection(baseSrf, targetSrf, out successCount);
+                            break;
+                        case 5:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, _config.SampleConfig.SurfaceSampleDirection, out successCount);
+                            break;
+                        default:
+                            break;
                     }
-                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePoints(baseSrf, targetSrf, out int successCount);
+                    ;
                     if (ok)
                     {
                         RhinoApp.WriteLine($"曲面对{i + 1} 成功采样了{successCount}个点");
@@ -178,6 +219,10 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                 {
                     var baseBrep = baseObjRfs[i].Brep();
                     var targetBrep = targetObjRfs[i].Brep();
+                    baseBrep.Faces.ShrinkFaces();  //收缩一下
+                    baseBrep.Standardize(); //
+                    targetBrep.Faces.ShrinkFaces();  //收缩一下
+                    targetBrep.Standardize(); //
                     baseBrep.Compact(); // Brep对象有时候会有重复的面，导致采样时一一对应出问题，先Compact一下去掉重复面
                     targetBrep.Compact();
                     if (baseBrep.Surfaces.Count != 1 || targetBrep.Surfaces.Count != 1)
@@ -189,13 +234,39 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     var baseSrf = baseBrep.Surfaces[0].ToNurbsSurface();
                     var targetSrf = targetBrep.Surfaces[0].ToNurbsSurface();
 
-                    //uv count必须一样，才能一一对应采样点对计算增量
-                    if (baseSrf.Points.CountU != targetSrf.Points.CountU || baseSrf.Points.CountV != targetSrf.Points.CountV)
+                    int successCount = 0;
+                    var ok = false;
+
+                    switch (_config.SampleConfig.SurfaceSampleMethod)
                     {
-                        RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
-                        throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                        case 0:
+                            //uv count必须一样，才能一一对应采样点对计算增量
+                            if (baseSrf.Points.CountU != targetSrf.Points.CountU || baseSrf.Points.CountV != targetSrf.Points.CountV)
+                            {
+                                RhinoApp.WriteLine($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                                throw new InvalidOperationException($"曲面对 {i + 1} 的 UV count 不一致，无法采样");
+                            }
+                            ok = AddSurfaceMapByUVCorrespond(baseSrf, targetSrf, out successCount);
+                            break;
+                        case 1:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.XAxis, out successCount);
+                            break;
+                        case 2:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.YAxis, out successCount);
+                            break;
+                        case 3:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, Vector3d.ZAxis, out successCount);
+                            break;
+                        case 4:
+                            ok = AddSurfaceMapByNormalDirection(baseSrf, targetSrf, out successCount);
+                            break;
+                        case 5:
+                            ok = AddSurfaceMapByDirection(baseSrf, targetSrf, _config.SampleConfig.SurfaceSampleDirection, out successCount);
+                            break;
+                        default:
+                            break;
                     }
-                    var ok = AddDeltasFromTwoNurbsSurfaceSamplePoints(baseSrf, targetSrf, out int successCount);
+                    ;
                     if (ok)
                     {
                         RhinoApp.WriteLine($"曲面对{i + 1} 成功采样了{successCount}个点");
@@ -218,14 +289,14 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
             if (basePts.Count > 0 && targetPts.Count > 0)
             {
 
-                var ok = AddDeltasFormTwoPts(basePts, targetPts, out int successCount);
+                var ok = AddPtMap(basePts, targetPts, out int successCount);
                 if (ok)
                 {
                     RhinoApp.WriteLine($"Point对成功采样了{successCount}个点");
                 }
                 else
                 {
-                    RhinoApp.WriteLine($"Point对Fail to sample points");
+                    RhinoApp.WriteLine($"Point对 Fail to sample points");
                 }
                 allSampleBools.Add(ok);
 
@@ -256,7 +327,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     if (obj.ObjectType == Rhino.DocObjects.ObjectType.Mesh)
                     {
                         var limitedmesh = obj as Mesh;
-                        var ok = AddDeltasFromLimitedMesh(limitedmesh, out int successCount);
+                        var ok = AddLimitMesh(limitedmesh, out int successCount);
                         if (ok)
                         {
                             RhinoApp.WriteLine($"limited 网格 {i + 1} 成功采样了 {successCount} 个点");
@@ -272,7 +343,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                         var limitedCurve = obj as Curve;
                         int count = (int)Math.Ceiling(limitedCurve.GetLength() / _config.SampleConfig.CurveSampleDistance + 1);
                         var ok =
-                            AddDeltasFromLimitedCurve(limitedCurve, count);
+                            AddLimitCurve(limitedCurve, count);
                         if (ok)
                         {
                             RhinoApp.WriteLine($"limited 曲线{i + 1} 成功采样了{count}个点");
@@ -294,7 +365,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     {
                         var limitedSrf = obj as Surface;
                         var limitedNurbsSrf = limitedSrf.ToNurbsSurface();
-                        var ok = AddDeltasFromLimitedNurbsSurface(limitedNurbsSrf, out int successCount);
+                        var ok = AddLimitSurface(limitedNurbsSrf, out int successCount);
                         if (ok)
                         {
                             RhinoApp.WriteLine($"limited 曲面 {i + 1} 成功采样了 {successCount} 个点");
@@ -308,6 +379,8 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                     else if (obj.ObjectType == Rhino.DocObjects.ObjectType.Brep)
                     {
                         var limitedBrep = obj as Brep;
+                        limitedBrep.Faces.ShrinkFaces();  //收缩一下
+                        limitedBrep.Standardize(); //
                         limitedBrep.Compact(); // Brep对象有时候会有重复的面，导致采样时一一对应出问题，先Compact一下去掉重复面
                         if (limitedBrep.Surfaces.Count != 1)
                         {
@@ -317,7 +390,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                         }
                         var limitedSrf = limitedBrep.Surfaces[0];
                         var limitedNurbsSrf = limitedSrf.ToNurbsSurface();
-                        var ok = AddDeltasFromLimitedNurbsSurface(limitedNurbsSrf, out int successCount);
+                        var ok = AddLimitSurface(limitedNurbsSrf, out int successCount);
                         if (ok)
                         {
                             RhinoApp.WriteLine($"limited 曲面 {i + 1} 成功采样了 {successCount} 个点");
@@ -338,7 +411,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
                 // 如果有点类型的受限对象，使用这些点作为受限点
                 if (limitedPoints.Count > 0)
                 {
-                    var okp = AddDeltasFromLimitedPoints(limitedPoints, out int successCountPoints);
+                    var okp = AddLimitPoints(limitedPoints, out int successCountPoints);
 
                     if (okp)
                     {
@@ -370,230 +443,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 
         }
 
-        static bool ComputeDeltaByNormal(Point3d sourcePoint, Curve targetCurve, out Vector3d delta)
-        {
-            delta = Vector3d.Unset;
-            if (targetCurve.ClosestPoint(sourcePoint, out double t, 0))
-            {
-                var dstpoint = targetCurve.PointAt(t);
-                delta = dstpoint - sourcePoint;
-                return true;
-            }
 
-            return false;
-        }
-
-
-        bool AddDeltasFromLimitedCurve(Curve limitedCurve, int count)
-        {
-            NurbsCurve nc = limitedCurve.ToNurbsCurve();
-            nc.Domain = new Interval(0, count);
-            var samplePoints = Enumerable.Range(0, count + 1).Select(t => nc.PointAt(t));
-            var ZeroDeltas = Enumerable.Range(0, count + 1).Select(t => Vector3d.Zero);
-
-            _srcPoints.AddRange(samplePoints);
-            _deltas.AddRange(ZeroDeltas);
-
-            return samplePoints.Count() > 0;
-        }
-
-        //use mesh vertex as limited point
-        bool AddDeltasFromLimitedMesh(Mesh limitedMesh, out int successCount)
-        {
-            successCount = 0;
-            if (limitedMesh == null || limitedMesh.Vertices.Count == 0 || !limitedMesh.IsValid)
-            {
-                return false;
-            }
-            else
-            {
-                var srcPoints = limitedMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
-                var zeroDeltas = limitedMesh.Vertices.Select(v => Vector3d.Zero);
-                _srcPoints.AddRange(srcPoints);
-                _deltas.AddRange(zeroDeltas);
-                successCount = limitedMesh.Vertices.Count;
-            }
-            return successCount > 0;
-
-        }
-
-        //use points as limited point
-        bool AddDeltasFromLimitedPoints(IEnumerable<Point3d> points, out int successCount)
-        {
-            successCount = 0;
-            if (points == null || !points.Any())
-            {
-                return false;
-            }
-            else
-            {
-                var zeroDeltas = points.Select(p => Vector3d.Zero);
-                _srcPoints.AddRange(points);
-                _deltas.AddRange(zeroDeltas);
-                successCount = points.Count();
-            }
-            return successCount > 0;
-        }
-
-        bool AddDeltasFromTwoCurveSamplePointsByClosestPoint(Curve baseCurve, Curve targetCurve, int count, out int successCount)
-        {
-            successCount = 0;
-            NurbsCurve nurbsBaseCurve = baseCurve.ToNurbsCurve();
-            nurbsBaseCurve.Domain = new Interval(0, count);
-            var srcPoints = Enumerable.Range(0, count + 1).Select(t => nurbsBaseCurve.PointAt(t));
-            var successSrcPoints = new List<Point3d>();
-            var successDeltas = new List<Vector3d>();
-            foreach (Point3d srcpoint in srcPoints)
-            {
-
-                if (ComputeDeltaByNormal(srcpoint, targetCurve, out Vector3d delta))
-                {
-                    successDeltas.Add(delta);
-                    successSrcPoints.Add(srcpoint);
-                }
-
-            }
-            _srcPoints.AddRange(successSrcPoints);
-            _deltas.AddRange(successDeltas);
-            if (successSrcPoints.Count > 0)
-            {
-                successCount = successSrcPoints.Count;
-
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-
-        }
-
-        bool AddDeltasFromTwoCurveSamplePointsByLength(Curve baseCurve, Curve targetCurve, int count, out int successCount)
-        {
-            successCount = 0;
-
-            NurbsCurve nurbsBase = baseCurve.ToNurbsCurve();
-            NurbsCurve nurbsTarget = targetCurve.ToNurbsCurve();
-
-            double baseLength = nurbsBase.GetLength();
-            double targetLength = nurbsTarget.GetLength();
-
-            // 采样参数列表
-            var srcPoints = new List<Point3d>();
-            var dstPoints = new List<Point3d>();
-
-            for (int i = 0; i <= count; i++)
-            {
-                if (nurbsBase.LengthParameter(baseLength * i / count, out double tBase) &&
-                nurbsTarget.LengthParameter(targetLength * i / count, out double tTarget))
-                {
-
-                    srcPoints.Add(nurbsBase.PointAt(tBase));
-                    dstPoints.Add(nurbsTarget.PointAt(tTarget));
-                }
-            }
-            var deltas = srcPoints.Zip(dstPoints, (src, dst) => dst - src).ToList();
-
-            _srcPoints.AddRange(srcPoints);
-            _deltas.AddRange(deltas);
-
-            if (srcPoints.Count > 0)
-            {
-                successCount = srcPoints.Count;
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
-
-
-        bool AddDeltasFromTwoMeshByVertexOrder(Mesh baseMesh, Mesh targetMesh, out int successCount)
-        {
-            successCount = 0;
-            if (baseMesh.Vertices.Count != targetMesh.Vertices.Count) { return false; }
-            ;
-            var srcPts = baseMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
-            var dstPts = targetMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
-            var deltas = srcPts.Zip(dstPts, (src, dst) => dst - src);
-            _srcPoints.AddRange(srcPts);
-            _deltas.AddRange(deltas);
-            successCount = srcPts.Count();
-            return successCount > 0;
-        }
-
-        bool AddDeltasFromTwoMeshByCoordinate(Mesh baseMesh, Mesh targetMesh, out int successCount)
-        {
-            successCount = 0;
-            if (baseMesh.Vertices.Count != targetMesh.Vertices.Count) { return false; }
-
-            var srcPts = baseMesh.Vertices.Select(v => new Point3d(v.X, v.Y, v.Z));
-
-            var baseMps = srcPts.Select(t => baseMesh.ClosestMeshPoint(t, 0.0));
-
-            var dstPts = baseMps.Select(bmp => targetMesh.PointAt(bmp));
-
-            var deltas = srcPts.Zip(dstPts, (src, dst) => dst - src);
-            _srcPoints.AddRange(srcPts);
-            _deltas.AddRange(deltas);
-            successCount = srcPts.Count();
-            return successCount > 0;
-        }
-
-        bool AddDeltasFormTwoPts(IEnumerable<Point3d> basePts, IEnumerable<Point3d> targetPts, out int successCount)
-        {
-            successCount = 0;
-            if (basePts.Count() != targetPts.Count()) return false;
-            var deltas = basePts.Zip(targetPts, (src, dst) => dst - src);
-            _srcPoints.AddRange(basePts);
-            _deltas.AddRange(deltas);
-            successCount = basePts.Count();
-            return successCount > 0;
-        }
-
-        //对UVcount一样的两张曲面进行采样，得到对应点对，计算位移增量
-        bool AddDeltasFromTwoNurbsSurfaceSamplePoints(NurbsSurface baseSrf, NurbsSurface targetSrf, out int successCount)
-        {
-            successCount = 0;
-            if (baseSrf == null || targetSrf == null) return false;
-            if (baseSrf.Points.CountU != targetSrf.Points.CountU || baseSrf.Points.CountV != targetSrf.Points.CountV) return false;
-            var srcPts = new List<Point3d>();
-            var dstPts = new List<Point3d>();
-            for (int i = 0; i < baseSrf.Points.CountU; i++)
-            {
-                for (int j = 0; j < baseSrf.Points.CountV; j++)
-                {
-                    srcPts.Add(baseSrf.Points.GetControlPoint(i, j).Location);
-                    dstPts.Add(targetSrf.Points.GetControlPoint(i, j).Location);
-                }
-            }
-            var deltas = srcPts.Zip(dstPts, (src, dst) => dst - src);
-            _srcPoints.AddRange(srcPts);
-            _deltas.AddRange(deltas);
-            successCount = srcPts.Count();
-            return successCount > 0;
-        }
-
-        // 对一张曲面进行采样，得到点，计算位移增量为0，作为受限点
-        bool AddDeltasFromLimitedNurbsSurface(NurbsSurface limitedSrf, out int successCount)
-        {
-            successCount = 0;
-            if (limitedSrf == null) return false;
-            var srcPts = new List<Point3d>();
-            for (int i = 0; i < limitedSrf.Points.CountU; i++)
-            {
-                for (int j = 0; j < limitedSrf.Points.CountV; j++)
-                {
-                    srcPts.Add(limitedSrf.Points.GetControlPoint(i, j).Location);
-                }
-            }
-            var zeroDeltas = srcPts.Select(p => Vector3d.Zero);
-            _srcPoints.AddRange(srcPts);
-            _deltas.AddRange(zeroDeltas);
-            successCount = srcPts.Count();
-            return successCount > 0;
-        }
 
     }
 }

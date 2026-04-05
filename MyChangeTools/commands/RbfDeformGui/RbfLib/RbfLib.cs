@@ -9,7 +9,7 @@ namespace MyChangeTools.commands.RbfDeformGui.RBFLib
 
     public static class RBFPhiFunctions
     {
-        static public Dictionary<int, string> PhiIndexFunNameDict = new Dictionary<int, string>
+        static readonly public Dictionary<int, string> PhiIndexFunNameDict = new Dictionary<int, string>
         {
             {0, "TPS"},
             {1, "CSRBFW2"},

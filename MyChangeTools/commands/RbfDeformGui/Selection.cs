@@ -1,6 +1,7 @@
 ﻿using Rhino;
 using Rhino.Commands;
 using Rhino.DocObjects;
+using Rhino.Geometry;
 using Rhino.Input;
 using Rhino.Input.Custom;
 using System.Linq;
@@ -61,6 +62,30 @@ namespace MyChangeTools.commands.RbfDeformGui
             var rc = RhinoGet.GetOneObject(prompt, false, type, out objRef);
             if (rc != Result.Success) return rc;
             doc.Objects.UnselectAll();
+            return Result.Success;
+        }
+
+        public static Result GetTwoPtVector(out Vector3d vector)
+        {
+            vector = Vector3d.Zero;
+            var gp = new GetPoint();
+            gp.SetCommandPrompt("选择第一个点");
+            gp.Get();
+            if (gp.CommandResult() != Result.Success) return gp.CommandResult();
+            var pt1 = gp.Point();
+
+            gp.SetCommandPrompt("选择第二个点");
+            gp.Get();
+            if (gp.CommandResult() != Result.Success) return gp.CommandResult();
+            var pt2 = gp.Point();
+
+            vector = pt2 - pt1;
+            if (vector.IsZero)
+            {
+                RhinoApp.WriteLine("两个点不能相同，请重新选择");
+                return Result.Failure;
+            }
+            vector.Unitize();
             return Result.Success;
         }
 

@@ -3,7 +3,6 @@ using Eto.Drawing;
 using Rhino;
 using Rhino.DocObjects;
 using Rhino.Commands;
-using Rhino.Input.Custom;
 using System.Collections.Generic;
 using Rhino.Geometry;
 using System;
@@ -18,54 +17,19 @@ namespace MyChangeTools.commands.RbfDeformGui
         private readonly ListBox targetListBox = new ListBox { Height = 110 };
         private readonly ListBox limitedListBox = new ListBox { Height = 110 };
 
-        Label moveDirectionlabel;
-        ComboBox moveComboBox;
-        Button pickMoveButton;
-
         // 内部列表（用于实时管理，Config 保持原 ObjRef[] 类型）
         private readonly List<ObjRef> _objRfs = new List<ObjRef>();
         private readonly List<ObjRef> _baseRfs = new List<ObjRef>();
         private readonly List<ObjRef> _targetRfs = new List<ObjRef>();
         private readonly List<ObjRef> _limitedRfs = new List<ObjRef>();
 
-
-        Config Config => ConfigManager.Current;
-
-        GroupBox CreateSelectionGroup()
+        GroupBox CreateObjectSelectionGroup()
         {
             var selectionLayout = new DynamicLayout
             {
                 //Padding = 5,
                 Spacing = new Size(5, 5),
             };
-
-            moveComboBox = new ComboBox
-            {
-                Items =
-        {
-            "Unset",
-            "X轴",
-            "Y轴",
-            "Z轴",
-            "XY底面",
-            "YZ侧面",
-            "XZ前面"
-        },
-                SelectedIndex = 0,
-            };
-            moveDirectionlabel = new Label
-            {
-                Text = "最终移动向量",
-                Font = new Eto.Drawing.Font(SystemFont.Bold),
-            };
-            pickMoveButton = new Button { Text = "两点定义" };
-
-            //1 row
-            selectionLayout.AddSeparateRow(4, new Size(5, 5), true, false, new Control[] { moveDirectionlabel, moveComboBox, pickMoveButton });
-
-            moveComboBox.SelectedIndexChanged += (s, e) => OnMovePresetSelected();
-            pickMoveButton.Click += (s, e) => SelectMoveDirection();
-
 
             StackLayout cob = CreateCategorySection(
                 "Deform Objects",
@@ -87,10 +51,9 @@ namespace MyChangeTools.commands.RbfDeformGui
                 () => Config.TargetObjRfs = _targetRfs.ToArray());
             StackLayout clb = CreateCategorySection("Limit Objects", limitedListBox, _limitedRfs, AddSelectLimited, () => Config.LimitedObjRfs = _limitedRfs.ToArray());
 
-            //2 row
-            var row3 = selectionLayout.
+            //1 row
+            var row1 = selectionLayout.
                 AddSeparateRow(null, new Size(5, 5), true, false, new Control[] { cob, cbb, ctb, clb });
-
 
             selectionLayout.SizeChanged += (s, e) =>
             {
@@ -238,75 +201,5 @@ namespace MyChangeTools.commands.RbfDeformGui
             RefreshListBox(limitedListBox, _limitedRfs);
         }
 
-        //两点向量
-        void SelectMoveDirection()
-        {
-            var gp = new GetPoint();
-            gp.SetCommandPrompt("Pick two points to define move direction");
-
-            gp.Get();
-            if (gp.CommandResult() != Result.Success) return;
-
-            var p1 = gp.Point();
-
-            gp.SetCommandPrompt("Second point");
-            gp.Get();
-            if (gp.CommandResult() != Result.Success) return;
-
-            var p2 = gp.Point();
-            var dir = p2 - p1;
-
-            Config.MoveVectors.Clear();
-            if (dir.IsValid)
-            {
-                Config.MoveVectors.Add(dir);
-                moveDirectionlabel.Text = "最终在自定义向量移动";
-            }
-            else
-                MessageBox.Show("Invalid direction. Please try again.", "Error", MessageBoxButtons.OK, MessageBoxType.Error);
-        }
-
-        //moveComboBox改变事件
-        private void OnMovePresetSelected()
-        {
-            if (moveComboBox.SelectedIndex < 0) return;
-            string option = moveComboBox.Items[moveComboBox.SelectedIndex].Text;
-            Config.MoveVectors.Clear();
-            Vector3d dir = Vector3d.Unset;
-            switch (option)
-            {
-                case "X轴":
-                    dir = Vector3d.XAxis;
-                    moveDirectionlabel.Text = "最终移动在X轴";
-                    break;
-                case "Y轴":
-                    dir = Vector3d.YAxis;
-                    moveDirectionlabel.Text = "最终移动在Y轴";
-                    break;
-                case "Z轴":
-                    dir = Vector3d.ZAxis;
-                    moveDirectionlabel.Text = "最终移动在Z轴";
-                    break;
-                case "XY底面":
-                    Config.MoveVectors.Add(Vector3d.XAxis);
-                    Config.MoveVectors.Add(Vector3d.YAxis);
-                    moveDirectionlabel.Text = "最终移动在XY底面";
-                    return;
-                case "YZ侧面":
-                    Config.MoveVectors.Add(Vector3d.ZAxis);
-                    Config.MoveVectors.Add(Vector3d.YAxis);
-                    moveDirectionlabel.Text = "最终移动在YZ侧面";
-                    return;
-                case "XZ前面":
-                    Config.MoveVectors.Add(Vector3d.XAxis);
-                    Config.MoveVectors.Add(Vector3d.ZAxis);
-                    moveDirectionlabel.Text = "最终移动在XZ前面";
-                    return;
-                case "Unset":
-                    moveDirectionlabel.Text = "Unset (default)";
-                    return;
-            }
-            Config.MoveVectors.Add(dir);
-        }
     }
 }
