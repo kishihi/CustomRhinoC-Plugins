@@ -1,3 +1,5 @@
+This repository is deprecated and will no longer be updated.
+
 ## Reference
 
 MathNet.Numerics
